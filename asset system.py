@@ -451,8 +451,7 @@ def admin_page():
     # 数据导入功能
     st.subheader("📥 数据导入")
     tab1, tab2, tab3 = st.tabs(["财务系统数据", "实物台账数据", "关系对照表"])
-
-    with tab1:  
+    with tab1:
         st.markdown("### 📊 财务系统数据导入")
         financial_file = st.file_uploader("上传财务系统Excel文件", type=['xlsx', 'xls'], key="admin_financial")
 
