@@ -420,12 +420,22 @@ def data_import_page():
               st.dataframe(df.head(), use_container_width=True)
               
               if st.button("确认导入财务数据", type="primary"):
-                  financial_data = df.to_dict('records')
-                  save_data(financial_data, FINANCIAL_DATA_FILE)
-                  st.success("✅ 财务系统数据导入成功！")
-                  st.rerun()
+                  # 验证和导入数据
+                  success_data, failed_data, error_summary = validate_and_import_financial_data(df)
+                  
+                  if success_data:
+                      save_data(success_data, FINANCIAL_DATA_FILE)
+                      st.success(f"✅ 成功导入 {len(success_data)} 条财务数据！")
+                  
+                  # 显示失败数据处理
+                  handle_import_errors("财务系统", failed_data, error_summary)
+                  
+                  if success_data:  # 只有成功导入数据时才刷新
+                      st.rerun()
+                      
           except Exception as e:
               st.error(f"❌ 文件读取失败：{str(e)}")
+              st.info("💡 请确保文件格式正确，或尝试另存为新的Excel文件后重新上传")
   
   with tab2:
       st.subheader("实物台账数据导入")
@@ -439,12 +449,22 @@ def data_import_page():
               st.dataframe(df.head(), use_container_width=True)
               
               if st.button("确认导入实物数据", type="primary"):
-                  physical_data = df.to_dict('records')
-                  save_data(physical_data, PHYSICAL_DATA_FILE)
-                  st.success("✅ 实物台账数据导入成功！")
-                  st.rerun()
+                  # 验证和导入数据
+                  success_data, failed_data, error_summary = validate_and_import_physical_data(df)
+                  
+                  if success_data:
+                      save_data(success_data, PHYSICAL_DATA_FILE)
+                      st.success(f"✅ 成功导入 {len(success_data)} 条实物数据！")
+                  
+                  # 显示失败数据处理
+                  handle_import_errors("实物台账", failed_data, error_summary)
+                  
+                  if success_data:  # 只有成功导入数据时才刷新
+                      st.rerun()
+                      
           except Exception as e:
               st.error(f"❌ 文件读取失败：{str(e)}")
+              st.info("💡 请确保文件格式正确，或尝试另存为新的Excel文件后重新上传")
   
   with tab3:
       st.subheader("对应关系数据导入")
@@ -458,188 +478,443 @@ def data_import_page():
               st.dataframe(df.head(), use_container_width=True)
               
               if st.button("确认导入对应关系", type="primary"):
-                  mapping_data = df.to_dict('records')
-                  save_data(mapping_data, MAPPING_DATA_FILE)
-                  st.success("✅ 对应关系数据导入成功！")
-                  st.rerun()
+                  # 验证和导入数据
+                  success_data, failed_data, error_summary = validate_and_import_mapping_data(df)
+                  
+                  if success_data:
+                      save_data(success_data, MAPPING_DATA_FILE)
+                      st.success(f"✅ 成功导入 {len(success_data)} 条对应关系！")
+                  
+                  # 显示失败数据处理
+                  handle_import_errors("对应关系", failed_data, error_summary)
+                  
+                  if success_data:  # 只有成功导入数据时才刷新
+                      st.rerun()
+                      
           except Exception as e:
               st.error(f"❌ 文件读取失败：{str(e)}")
+              st.info("💡 请确保文件格式正确，或尝试另存为新的Excel文件后重新上传")
   
   with tab4:
-      st.subheader("📋 数据导入模板格式")
-      st.info("💡 点击下载按钮获取标准格式的Excel模板，模板中已预设好所有必需的列标题，您只需填入数据即可。")
+      display_template_download_section()
+
+
+def display_template_download_section():
+  """显示模板下载区域"""
+  st.subheader("📋 数据导入模板格式")
+  st.info("💡 点击下载按钮获取标准格式的Excel模板，模板中已预设好所有必需的列标题，您只需填入数据即可。")
+  
+  # 创建三列布局
+  col1, col2, col3 = st.columns(3)
+  
+  # 模板配置
+  templates = {
+      "财务系统": {
+          "columns": ["财务系统编号", "资产名称", "资产分类", "资产规格", "资产价值", "累积折旧", "账面价值", "取得日期", "部门名称", "保管人", "备注"],
+          "icon": "📊"
+      },
+      "实物台账": {
+          "columns": ["固定资产编号", "固定资产名称", "固定资产类型", "规格型号", "资产价值", "累计折旧额", "入账日期", "存放部门", "地点", "使用人", "保管人", "使用状态"],
+          "icon": "📋"
+      },
+      "对应关系": {
+          "columns": ["财务系统编号", "实物台账编号", "备注"],
+          "icon": "🔗"
+      }
+  }
+  
+  columns = [col1, col2, col3]
+  template_names = ["财务系统", "实物台账", "对应关系"]
+  
+  for i, (col, template_name) in enumerate(zip(columns, template_names)):
+      with col:
+          template_info = templates[template_name]
+          st.markdown(f"### {template_info['icon']} {template_name}数据模板")
+          st.write("**包含以下字段：**")
+          for field in template_info["columns"]:
+              st.write(f"• {field}")
+          
+          # 创建模板数据
+          template_df = pd.DataFrame(columns=template_info["columns"])
+          
+          # 下载按钮
+          try:
+              excel_data = create_excel_file(template_df, f"{template_name}数据模板")
+              st.download_button(
+                  label=f"📥 下载{template_name}模板",
+                  data=excel_data,
+                  file_name=f"{template_name}数据模板_{get_current_date()}.xlsx",
+                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  use_container_width=True
+              )
+          except Exception as e:
+              # 备用CSV下载
+              csv_data = template_df.to_csv(index=False, encoding='utf-8-sig')
+              st.download_button(
+                  label=f"📥 下载{template_name}模板(CSV)",
+                  data=csv_data,
+                  file_name=f"{template_name}数据模板_{get_current_date()}.csv",
+                  mime="text/csv",
+                  use_container_width=True
+              )
+  
+  # 使用说明
+  display_usage_instructions()
+  
+  # 示例数据
+  display_sample_data()
+
+
+def display_usage_instructions():
+  """显示使用说明"""
+  st.markdown("---")
+  st.markdown("### 📖 使用说明")
+  
+  with st.expander("📋 详细使用指南", expanded=False):
+      st.markdown("""
+      #### 🔧 模板使用步骤：
+      1. **下载模板**：点击上方对应的下载按钮获取Excel模板
+      2. **填写数据**：在模板中填入您的实际数据（请勿修改列标题）
+      3. **保存文件**：将填写完成的文件保存为Excel格式
+      4. **导入数据**：在对应的导入标签页中上传您的文件
       
-      # 创建三列布局
+      #### 📋 数据格式说明：
+      - **编号字段**：必填，建议使用唯一标识符
+      - **名称字段**：必填，资产的具体名称
+      - **数值字段**：支持多种格式（如：1000、1,000、1000.00）
+      - **日期字段**：支持多种格式（如：2024-01-15、2024/1/15、20240115）
+      - **其他字段**：可选填写，支持中英文
+      
+      #### ⚠️ 重要提醒：
+      - 系统会自动验证数据格式并提供详细的错误报告
+      - 导入失败的数据可以下载查看具体错误原因
+      - 建议先用少量数据测试导入效果
+      """)
+
+
+def display_sample_data():
+  """显示示例数据"""
+  st.markdown("---")
+  st.markdown("### 👀 模板数据示例")
+  
+  # 示例数据
+  financial_sample = pd.DataFrame([
+      {
+          "财务系统编号": "FA001", "资产名称": "联想台式电脑", "资产分类": "电子设备",
+          "资产规格": "ThinkCentre M720q", "资产价值": 4500.00, "累积折旧": 1500.00,
+          "账面价值": 3000.00, "取得日期": "2023-01-15", "部门名称": "财务部",
+          "保管人": "张三", "备注": "办公用电脑"
+      }
+  ])
+  
+  physical_sample = pd.DataFrame([
+      {
+          "固定资产编号": "PA001", "固定资产名称": "联想台式电脑", "固定资产类型": "计算机设备",
+          "规格型号": "ThinkCentre M720q", "资产价值": 4500.00, "累计折旧额": 1500.00,
+          "入账日期": "2023-01-15", "存放部门": "财务部", "地点": "财务部办公室",
+          "使用人": "张三", "保管人": "张三", "使用状态": "正常使用"
+      }
+  ])
+  
+  mapping_sample = pd.DataFrame([
+      {"财务系统编号": "FA001", "实物台账编号": "PA001", "备注": "同一台联想电脑"}
+  ])
+  
+  example_tab1, example_tab2, example_tab3 = st.tabs(["财务系统示例", "实物台账示例", "对应关系示例"])
+  
+  with example_tab1:
+      st.dataframe(financial_sample, use_container_width=True, hide_index=True)
+  
+  with example_tab2:
+      st.dataframe(physical_sample, use_container_width=True, hide_index=True)
+  
+  with example_tab3:
+      st.dataframe(mapping_sample, use_container_width=True, hide_index=True)
+
+
+# ========== 数据验证函数 ==========
+
+def validate_and_import_financial_data(df):
+  """验证并导入财务系统数据"""
+  return validate_data(df, {
+      "required_columns": ["财务系统编号", "资产名称"],
+      "numeric_columns": ["资产价值", "累积折旧", "账面价值"],
+      "date_columns": ["取得日期"],
+      "data_type": "财务系统"
+  })
+
+def validate_and_import_physical_data(df):
+  """验证并导入实物台账数据"""
+  return validate_data(df, {
+      "required_columns": ["固定资产编号", "固定资产名称"],
+      "numeric_columns": ["资产价值", "累计折旧额"],
+      "date_columns": ["入账日期"],
+      "data_type": "实物台账"
+  })
+
+def validate_and_import_mapping_data(df):
+  """验证并导入对应关系数据"""
+  return validate_data(df, {
+      "required_columns": ["财务系统编号", "实物台账编号"],
+      "numeric_columns": [],
+      "date_columns": [],
+      "data_type": "对应关系"
+  })
+
+def validate_data(df, config):
+  """通用数据验证函数"""
+  success_data = []
+  failed_data = []
+  error_summary = {"总行数": len(df), "成功": 0, "失败": 0, "错误类型": {}}
+  
+  required_columns = config["required_columns"]
+  numeric_columns = config["numeric_columns"]
+  date_columns = config["date_columns"]
+  
+  # 检查必需列是否存在
+  missing_columns = [col for col in required_columns if col not in df.columns]
+  if missing_columns:
+      error_msg = f"缺少必需列：{', '.join(missing_columns)}"
+      for idx, row in df.iterrows():
+          failed_record = row.to_dict()
+          failed_record['行号'] = idx + 2
+          failed_record['错误原因'] = error_msg
+          failed_data.append(failed_record)
+      
+      error_summary["失败"] = len(df)
+      error_summary["错误类型"]["缺少必需列"] = len(df)
+      return success_data, failed_data, error_summary
+  
+  # 逐行验证数据
+  for idx, row in df.iterrows():
+      errors = []
+      excel_row = idx + 2
+      
+      # 验证必填字段
+      for col in required_columns:
+          if pd.isna(row.get(col)) or str(row.get(col)).strip() == "":
+              errors.append(f"{col}不能为空")
+      
+      # 验证数值字段
+      for col in numeric_columns:
+          if col in row and not pd.isna(row[col]):
+              if not is_valid_number(row[col]):
+                  errors.append(f"{col}格式不正确，应为数值")
+      
+      # 验证日期字段
+      for col in date_columns:
+          if col in row and not pd.isna(row[col]):
+              if not is_valid_date(row[col]):
+                  errors.append(f"{col}格式不正确，建议使用YYYY-MM-DD格式")
+      
+      # 处理验证结果
+      if errors:
+          failed_record = row.to_dict()
+          failed_record['行号'] = excel_row
+          failed_record['错误原因'] = "; ".join(errors)
+          failed_data.append(failed_record)
+          
+          error_summary["失败"] += 1
+          for error in errors:
+              error_type = error.split("不能为空")[0] if "不能为空" in error else error.split("格式不正确")[0] if "格式不正确" in error else "其他错误"
+              error_summary["错误类型"][error_type] = error_summary["错误类型"].get(error_type, 0) + 1
+      else:
+          clean_record = clean_record_data(row, numeric_columns, date_columns)
+          success_data.append(clean_record)
+          error_summary["成功"] += 1
+  
+  return success_data, failed_data, error_summary
+
+def handle_import_errors(data_type, failed_data, error_summary):
+  """处理导入错误，显示错误信息并提供下载"""
+  if failed_data:
+      st.error(f"❌ {data_type}数据导入部分失败")
+      
+      # 显示错误汇总
       col1, col2, col3 = st.columns(3)
-      
       with col1:
-          st.markdown("### 📊 财务系统数据模板")
-          st.write("**包含以下字段：**")
-          financial_columns = [
-              "财务系统编号", "资产名称", "资产分类", "资产规格", 
-              "资产价值", "累积折旧", "账面价值", "取得日期", 
-              "部门名称", "保管人", "备注"
-          ]
-          for col in financial_columns:
-              st.write(f"• {col}")
-          
-          # 创建财务系统模板
-          try:
-              financial_template = create_financial_template()
-              financial_excel = create_excel_download(financial_template, "财务系统数据模板")
-              
-              st.download_button(
-                  label="📥 下载财务系统模板",
-                  data=financial_excel,
-                  file_name=f"财务系统数据模板_{get_current_date()}.xlsx",
-                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                  use_container_width=True
-              )
-          except Exception as e:
-              st.error(f"模板生成失败：{str(e)}")
-              # 提供备用下载方案
-              financial_template = create_financial_template()
-              csv_data = financial_template.to_csv(index=False, encoding='utf-8-sig')
-              st.download_button(
-                  label="📥 下载财务系统模板(CSV格式)",
-                  data=csv_data,
-                  file_name=f"财务系统数据模板_{get_current_date()}.csv",
-                  mime="text/csv",
-                  use_container_width=True
-              )
-      
+          st.metric("总行数", error_summary["总行数"])
       with col2:
-          st.markdown("### 📋 实物台账数据模板")
-          st.write("**包含以下字段：**")
-          physical_columns = [
-              "固定资产编号", "固定资产名称", "固定资产类型", "规格型号",
-              "资产价值", "累计折旧额", "入账日期", "存放部门",
-              "地点", "使用人", "保管人", "使用状态"
-          ]
-          for col in physical_columns:
-              st.write(f"• {col}")
-          
-          # 创建实物台账模板
-          try:
-              physical_template = create_physical_template()
-              physical_excel = create_excel_download(physical_template, "实物台账数据模板")
-              
-              st.download_button(
-                  label="📥 下载实物台账模板",
-                  data=physical_excel,
-                  file_name=f"实物台账数据模板_{get_current_date()}.xlsx",
-                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                  use_container_width=True
-              )
-          except Exception as e:
-              st.error(f"模板生成失败：{str(e)}")
-              # 提供备用下载方案
-              physical_template = create_physical_template()
-              csv_data = physical_template.to_csv(index=False, encoding='utf-8-sig')
-              st.download_button(
-                  label="📥 下载实物台账模板(CSV格式)",
-                  data=csv_data,
-                  file_name=f"实物台账数据模板_{get_current_date()}.csv",
-                  mime="text/csv",
-                  use_container_width=True
-              )
-      
+          st.metric("成功导入", error_summary["成功"], delta=f"+{error_summary['成功']}")
       with col3:
-          st.markdown("### 🔗 对应关系数据模板")
-          st.write("**包含以下字段：**")
-          mapping_columns = [
-              "财务系统编号", "实物台账编号", "备注"
-          ]
-          for col in mapping_columns:
-              st.write(f"• {col}")
-          
-          # 创建对应关系模板
-          try:
-              mapping_template = create_mapping_template()
-              mapping_excel = create_excel_download(mapping_template, "对应关系数据模板")
-              
-              st.download_button(
-                  label="📥 下载对应关系模板",
-                  data=mapping_excel,
-                  file_name=f"对应关系数据模板_{get_current_date()}.xlsx",
-                  mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                  use_container_width=True
-              )
-          except Exception as e:
-              st.error(f"模板生成失败：{str(e)}")
-              # 提供备用下载方案
-              mapping_template = create_mapping_template()
-              csv_data = mapping_template.to_csv(index=False, encoding='utf-8-sig')
-              st.download_button(
-                  label="📥 下载对应关系模板(CSV格式)",
-                  data=csv_data,
-                  file_name=f"对应关系数据模板_{get_current_date()}.csv",
-                  mime="text/csv",
-                  use_container_width=True
-              )
+          st.metric("导入失败", error_summary["失败"], delta=f"-{error_summary['失败']}")
       
-      # 添加使用说明
-      st.markdown("---")
-      st.markdown("### 📖 使用说明")
+      # 显示错误类型统计
+      if error_summary["错误类型"]:
+          st.write("**错误类型统计：**")
+          error_df = pd.DataFrame(list(error_summary["错误类型"].items()), 
+                                columns=["错误类型", "数量"])
+          st.dataframe(error_df, use_container_width=True, hide_index=True)
       
-      with st.expander("📋 详细使用指南", expanded=False):
-          st.markdown("""
-          #### 🔧 模板使用步骤：
-          1. **下载模板**：点击上方对应的下载按钮获取Excel模板
-          2. **填写数据**：在模板中填入您的实际数据（请勿修改列标题）
-          3. **保存文件**：将填写完成的文件保存为Excel格式
-          4. **导入数据**：在对应的导入标签页中上传您的文件
-          
-          #### ⚠️ 重要注意事项：
-          - **不要修改列标题**：模板中的列标题必须保持不变
-          - **数据格式要求**：
-            - 日期格式：YYYY-MM-DD（如：2024-01-15）
-            - 数值格式：纯数字，不要包含货币符号
-            - 编号格式：建议使用唯一标识符
-          - **必填字段**：编号和名称字段为必填项
-          - **数据一致性**：确保对应关系中的编号在财务和实物数据中都存在
-          
-          #### 💡 填写建议：
-          - **财务系统编号**：使用您财务系统中的实际资产编号
-          - **实物台账编号**：使用实物资产的唯一标识码
-          - **资产价值**：填写不含税的资产原值
-          - **日期字段**：统一使用 YYYY-MM-DD 格式
-          """)
+      # 显示失败数据详情
+      with st.expander(f"📋 查看失败数据详情 ({len(failed_data)} 条)", expanded=False):
+          failed_df = pd.DataFrame(failed_data)
+          st.dataframe(failed_df, use_container_width=True, hide_index=True)
       
-      # 添加示例数据预览
-      st.markdown("---")
-      st.markdown("### 👀 模板数据示例")
+      # 提供失败数据下载
+      failed_df = pd.DataFrame(failed_data)
       
-      example_tab1, example_tab2, example_tab3 = st.tabs(["财务系统示例", "实物台账示例", "对应关系示例"])
+      # Excel下载
+      try:
+          excel_data = create_excel_file(failed_df, f"{data_type}导入失败数据")
+          st.download_button(
+              label=f"📥 下载失败数据 (Excel格式)",
+              data=excel_data,
+              file_name=f"{data_type}_导入失败数据_{get_current_date()}.xlsx",
+              mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              use_container_width=True
+          )
+      except:
+          # 备用CSV下载
+          csv_data = failed_df.to_csv(index=False, encoding='utf-8-sig')
+          st.download_button(
+              label=f"📥 下载失败数据 (CSV格式)",
+              data=csv_data,
+              file_name=f"{data_type}_导入失败数据_{get_current_date()}.csv",
+              mime="text/csv",
+              use_container_width=True
+          )
       
-      with example_tab1:
-          st.write("**财务系统数据示例：**")
-          financial_example = create_financial_template(with_sample=True)
-          st.dataframe(financial_example, use_container_width=True, hide_index=True)
-      
-      with example_tab2:
-          st.write("**实物台账数据示例：**")
-          physical_example = create_physical_template(with_sample=True)
-          st.dataframe(physical_example, use_container_width=True, hide_index=True)
-      
-      with example_tab3:
-          st.write("**对应关系数据示例：**")
-          mapping_example = create_mapping_template(with_sample=True)
-          st.dataframe(mapping_example, use_container_width=True, hide_index=True)
+      st.info("💡 请修正失败数据中的错误后重新导入")
+  else:
+      if error_summary["成功"] > 0:
+          st.success(f"🎉 {data_type}数据全部导入成功！")
 
 
-# 辅助函数
+# ========== 辅助函数 ==========
+
 def get_current_date():
   """获取当前日期字符串"""
   try:
       from datetime import datetime
       return datetime.now().strftime('%Y%m%d')
   except:
-      return "20240101"  # 备用日期
+      return "20240101"
 
+def is_valid_number(value):
+  """验证是否为有效数字"""
+  if pd.isna(value):
+      return True
+  try:
+      value_str = str(value).replace(",", "").replace("￥", "").replace("¥", "").strip()
+      if value_str and value_str != "":
+          float(value_str)
+      return True
+  except (ValueError, TypeError):
+      return False
+
+def is_valid_date(date_value):
+  """验证是否为有效日期"""
+  if pd.isna(date_value):
+      return True
+  
+  date_str = str(date_value).strip()
+  if not date_str:
+      return True
+  
+  # 尝试多种日期格式
+  date_formats = [
+      "%Y-%m-%d", "%Y/%m/%d", "%Y%m%d",
+      "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S",
+      "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%m-%d-%Y"
+  ]
+  
+  for fmt in date_formats:
+      try:
+          pd.to_datetime(date_str, format=fmt)
+          return True
+      except:
+          continue
+  
+  try:
+      pd.to_datetime(date_str)
+      return True
+  except:
+      return False
+
+def clean_record_data(row, numeric_columns, date_columns):
+  """清洗记录数据"""
+  clean_record = {}
+  
+  # 处理所有字段
+  for col, value in row.items():
+      if col in numeric_columns:
+          # 数值字段清洗
+          try:
+              if not pd.isna(value):
+                  value_str = str(value).replace(",", "").replace("￥", "").replace("¥", "").strip()
+                  clean_record[col] = float(value_str) if value_str else 0.0
+              else:
+                  clean_record[col] = 0.0
+          except:
+              clean_record[col] = 0.0
+      elif col in date_columns:
+          # 日期字段清洗
+          try:
+              if not pd.isna(value):
+                  date_str = str(value).strip()
+                  if date_str:
+                      parsed_date = pd.to_datetime(date_str)
+                      clean_record[col] = parsed_date.strftime("%Y-%m-%d")
+                  else:
+                      clean_record[col] = ""
+              else:
+                  clean_record[col] = ""
+          except:
+              clean_record[col] = str(value) if not pd.isna(value) else ""
+      else:
+          # 字符串字段
+          clean_record[col] = str(value).strip() if not pd.isna(value) else ""
+  
+  return clean_record
+
+def create_excel_file(df, sheet_name):
+  """创建Excel文件"""
+  from io import BytesIO
+  
+  output = BytesIO()
+  
+  # 尝试使用openpyxl
+  try:
+      with pd.ExcelWriter(output, engine='openpyxl') as writer:
+          df.to_excel(writer, sheet_name=sheet_name, index=False)
+      return output.getvalue()
+  except ImportError:
+      pass
+  
+  # 备用：使用xlsxwriter
+  try:
+      import xlsxwriter
+      with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+          df.to_excel(writer, sheet_name=sheet_name, index=False)
+          
+          # 简单格式化
+          workbook = writer.book
+          worksheet = writer.sheets[sheet_name]
+          
+          # 设置标题行格式
+          header_format = workbook.add_format({
+              'bold': True,
+              'fg_color': '#4CAF50',
+              'font_color': 'white',
+              'border': 1
+          })
+          
+          # 应用标题格式
+          for col_num, value in enumerate(df.columns.values):
+              worksheet.write(0, col_num, value, header_format)
+          
+          # 自动调整列宽
+          for i, col in enumerate(df.columns):
+              max_len = max(len(str(col)), 12)
+              worksheet.set_column(i, i, min(max_len, 30))
+      
+      return output.getvalue()
+  except ImportError:
+      raise Exception("需要安装 openpyxl 或 xlsxwriter 库")
 def create_financial_template(with_sample=False):
   """创建财务系统数据模板"""
-  columns = [
+  columns = [  
       "财务系统编号", "资产名称", "资产分类", "资产规格", 
       "资产价值", "累积折旧", "账面价值", "取得日期", 
       "部门名称", "保管人", "备注"
