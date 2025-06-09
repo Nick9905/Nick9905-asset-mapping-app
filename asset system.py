@@ -452,7 +452,7 @@ def admin_page():
     st.subheader("📥 数据导入")
     tab1, tab2, tab3 = st.tabs(["财务系统数据", "实物台账数据", "关系对照表"])
 
-    with tab1:
+    with tab1:  
         st.markdown("### 📊 财务系统数据导入")
         financial_file = st.file_uploader("上传财务系统Excel文件", type=['xlsx', 'xls'], key="admin_financial")
 
@@ -465,7 +465,28 @@ def admin_page():
                     st.dataframe(df.head())
 
                 if st.button("导入财务数据", key="admin_import_financial"):
-                    st.success("✅ 数据导入功能需要完整的导入逻辑")
+    try:
+        # 转换DataFrame为所需格式
+        financial_records = []
+        for _, row in df.iterrows():
+            record = {
+                "财务系统编号": str(row.get("财务系统编号", "")),
+                "资产名称": str(row.get("资产名称", "")),
+                "资产分类": str(row.get("资产分类", "")),
+                "资产价值": float(row.get("资产价值", 0)),
+                "部门名称": str(row.get("部门名称", "")),
+                "保管人": str(row.get("保管人", ""))
+            }
+            financial_records.append(record)
+        
+        # 保存数据
+        if save_data(FINANCIAL_DATA_FILE, financial_records):
+            st.success(f"✅ 成功导入 {len(financial_records)} 条财务数据")
+            st.cache_data.clear()  # 清除缓存
+        else:
+            st.error("❌ 数据保存失败")
+    except Exception as e:
+        st.error(f"❌ 数据导入失败：{str(e)}")
 
             except Exception as e:
                 st.error(f"❌ 文件处理失败：{str(e)}")
@@ -483,7 +504,28 @@ def admin_page():
                     st.dataframe(df.head())
 
                 if st.button("导入实物数据", key="admin_import_physical"):
-                    st.success("✅ 数据导入功能需要完整的导入逻辑")
+    try:
+        # 转换DataFrame为所需格式
+        physical_records = []
+        for _, row in df.iterrows():
+            record = {
+                "固定资产编号": str(row.get("固定资产编号", "")),
+                "固定资产名称": str(row.get("固定资产名称", "")),
+                "固定资产类型": str(row.get("固定资产类型", "")),
+                "资产价值": float(row.get("资产价值", 0)),
+                "存放部门": str(row.get("存放部门", "")),
+                "保管人": str(row.get("保管人", ""))
+            }
+            physical_records.append(record)
+        
+        # 保存数据
+        if save_data(PHYSICAL_DATA_FILE, physical_records):
+            st.success(f"✅ 成功导入 {len(physical_records)} 条实物数据")
+            st.cache_data.clear()  # 清除缓存
+        else:
+            st.error("❌ 数据保存失败")
+    except Exception as e:
+        st.error(f"❌ 数据导入失败：{str(e)}")
 
             except Exception as e:
                 st.error(f"❌ 文件处理失败：{str(e)}")
@@ -501,7 +543,25 @@ def admin_page():
                     st.dataframe(df.head())
 
                 if st.button("导入对照关系", key="admin_import_mapping"):
-                    st.success("✅ 数据导入功能需要完整的导入逻辑")
+    try:
+        # 转换DataFrame为所需格式
+        mapping_records = []
+        for _, row in df.iterrows():
+            record = {
+                "财务系统编号": str(row.get("财务系统编号", "")),
+                "实物台账编号": str(row.get("实物台账编号", ""))
+            }
+            mapping_records.append(record)
+        
+        # 保存数据
+        if save_data(MAPPING_DATA_FILE, mapping_records):
+            st.success(f"✅ 成功导入 {len(mapping_records)} 条映射关系")
+            st.cache_data.clear()  # 清除缓存
+        else:
+            st.error("❌ 数据保存失败")
+    except Exception as e:
+        st.error(f"❌ 数据导入失败：{str(e)}")
+
 
             except Exception as e:
                 st.error(f"❌ 文件处理失败：{str(e)}")
