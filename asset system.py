@@ -654,7 +654,7 @@ def all_data_view_page():
       
       st.markdown("---")
       st.subheader("📊 财务系统-资产明细账")
-      st.info("💡 点击下方表格中的复选框选择资产，系统将自动显示对应的实物资产信息")
+      st.info("💡 点击下方表格中的复选框选择资产，支持多选。系统将为每个选中的资产显示对应的实物资产信息")
       
       # 创建DataFrame
       df = pd.DataFrame(financial_data)
@@ -682,7 +682,7 @@ def all_data_view_page():
               column_config={
                   "选择": st.column_config.CheckboxColumn(
                       "选择",
-                      help="选择要查看对应关系的资产",
+                      help="选择要查看对应关系的资产（支持多选）",
                       default=False,
                   )
               },
@@ -693,79 +693,181 @@ def all_data_view_page():
           selected_rows = edited_df[edited_df["选择"] == True]
           
           if len(selected_rows) > 0:
-              # 自动显示第一个选中行的对应资产信息
-              selected_financial = selected_rows.iloc[0]
-              financial_code = selected_financial['财务系统编号']
+              st.success(f"✅ 已选择 {len(selected_rows)} 个资产")
               
-              st.success(f"✅ 已选择资产：{financial_code} - {selected_financial['资产名称']}")
-              
-              # 查找对应的实物资产
-              corresponding_asset, physical_code = get_mapping_info(
-                  financial_code, "financial", mapping_data, financial_data, physical_data
-              )
-              
-              if corresponding_asset:
-                  st.success(f"✅ 找到对应的实物资产：{physical_code}")
-                  
-                  # 显示对比信息
-                  col1, col2 = st.columns(2)
-                  
-                  with col1:
-                      st.markdown("### 📊 财务系统信息")
-                      st.write(f"**编号**：{selected_financial['财务系统编号']}")
-                      st.write(f"**名称**：{selected_financial['资产名称']}")
-                      st.write(f"**分类**：{selected_financial['资产分类']}")
-                      st.write(f"**规格**：{selected_financial['资产规格']}")
-                      st.write(f"**价值**：¥{selected_financial['资产价值']:,.2f}")
-                      st.write(f"**累积折旧**：¥{selected_financial['累积折旧']:,.2f}")
-                      st.write(f"**账面价值**：¥{selected_financial['账面价值']:,.2f}")
-                      st.write(f"**取得日期**：{selected_financial['取得日期']}")
-                      st.write(f"**部门**：{selected_financial['部门名称']}")
-                      st.write(f"**保管人**：{selected_financial['保管人']}")
-                      st.write(f"**备注**：{selected_financial['备注']}")
-                  
-                  with col2:
-                      st.markdown("### 📋 实物台账信息")
-                      st.write(f"**编号**：{corresponding_asset['固定资产编号']}")
-                      st.write(f"**名称**：{corresponding_asset['固定资产名称']}")
-                      st.write(f"**类型**：{corresponding_asset['固定资产类型']}")
-                      st.write(f"**规格**：{corresponding_asset['规格型号']}")
-                      st.write(f"**价值**：¥{corresponding_asset['资产价值']:,.2f}")
-                      st.write(f"**累计折旧**：¥{corresponding_asset['累计折旧额']:,.2f}")
-                      net_value = corresponding_asset['资产价值'] - corresponding_asset['累计折旧额']
-                      st.write(f"**净值**：¥{net_value:,.2f}")
-                      st.write(f"**入账日期**：{corresponding_asset['入账日期']}")
-                      st.write(f"**存放部门**：{corresponding_asset['存放部门']}")
-                      st.write(f"**地点**：{corresponding_asset['地点']}")
-                      st.write(f"**使用人**：{corresponding_asset['使用人']}")
-                      st.write(f"**保管人**：{corresponding_asset['保管人']}")
-                      st.write(f"**使用状态**：{corresponding_asset['使用状态']}")
-                  
-                  # 差异分析
-                  st.markdown("### 📊 差异分析")
-                  value_diff = selected_financial['资产价值'] - corresponding_asset['资产价值']
-                  depreciation_diff = selected_financial['累积折旧'] - corresponding_asset['累计折旧额']
-                  
-                  col1, col2, col3 = st.columns(3)
-                  with col1:
-                      if abs(value_diff) > 0.01:
-                          st.error(f"价值差异：¥{value_diff:,.2f}")
-                      else:
-                          st.success("✅ 价值一致")
-                  
-                  with col2:
-                      if abs(depreciation_diff) > 0.01:
-                          st.error(f"折旧差异：¥{depreciation_diff:,.2f}")
-                      else:
-                          st.success("✅ 折旧一致")
-                  
-                  with col3:
-                      if selected_financial['部门名称'] != corresponding_asset['存放部门']:
-                          st.warning("⚠️ 部门不一致")
-                      else:
-                          st.success("✅ 部门一致")
+              # 创建选择显示方式的选项
+              if len(selected_rows) > 1:
+                  display_option = st.radio(
+                      "选择显示方式：",
+                      ["标签页显示（推荐）", "列表显示", "对比显示"],
+                      horizontal=True
+                  )
               else:
-                  st.error(f"❌ 未找到财务编号 {financial_code} 对应的实物资产")
+                  display_option = "标签页显示（推荐）"
+              
+              # 根据选择的显示方式展示结果
+              if display_option == "标签页显示（推荐）":
+                  # 为每个选中的资产创建标签页
+                  tab_names = []
+                  for idx, (_, row) in enumerate(selected_rows.iterrows()):
+                      asset_name = row['资产名称']
+                      if len(asset_name) > 10:
+                          asset_name = asset_name[:10] + "..."
+                      tab_names.append(f"{row['财务系统编号']} - {asset_name}")
+                  
+                  tabs = st.tabs(tab_names)
+                  
+                  for tab_idx, (tab, (_, selected_financial)) in enumerate(zip(tabs, selected_rows.iterrows())):
+                      with tab:
+                          financial_code = selected_financial['财务系统编号']
+                          
+                          # 查找对应的实物资产
+                          corresponding_asset = None
+                          physical_code = None
+                          
+                          # 在映射数据中查找对应关系
+                          for mapping in mapping_data:
+                              if mapping.get("财务系统编号") == financial_code:
+                                  physical_code = mapping.get("实物台账编号")
+                                  # 在实物数据中查找对应资产
+                                  for physical in physical_data:
+                                      if physical.get("固定资产编号") == physical_code:
+                                          corresponding_asset = physical
+                                          break
+                                  break
+                          
+                          if corresponding_asset:
+                              st.success(f"✅ 找到对应的实物资产：{physical_code}")
+                              
+                              # 显示对比信息
+                              col1, col2 = st.columns(2)
+                              
+                              with col1:
+                                  st.markdown("### 📊 财务系统信息")
+                                  display_financial_info(selected_financial)
+                              
+                              with col2:
+                                  st.markdown("### 📋 实物台账信息")
+                                  display_physical_info(corresponding_asset)
+                              
+                              # 差异分析
+                              st.markdown("### 📊 差异分析")
+                              display_difference_analysis(selected_financial, corresponding_asset)
+                          else:
+                              st.error(f"❌ 未找到财务编号 {financial_code} 对应的实物资产")
+              
+              elif display_option == "列表显示":
+                  for idx, (_, selected_financial) in enumerate(selected_rows.iterrows()):
+                      with st.expander(f"📊 资产 {idx+1}: {selected_financial['财务系统编号']} - {selected_financial['资产名称']}", expanded=idx==0):
+                          financial_code = selected_financial['财务系统编号']
+                          
+                          # 查找对应的实物资产
+                          corresponding_asset = None
+                          physical_code = None
+                          
+                          # 在映射数据中查找对应关系
+                          for mapping in mapping_data:
+                              if mapping.get("财务系统编号") == financial_code:
+                                  physical_code = mapping.get("实物台账编号")
+                                  # 在实物数据中查找对应资产
+                                  for physical in physical_data:
+                                      if physical.get("固定资产编号") == physical_code:
+                                          corresponding_asset = physical
+                                          break
+                                  break
+                          
+                          if corresponding_asset:
+                              st.success(f"✅ 找到对应的实物资产：{physical_code}")
+                              
+                              # 显示对比信息
+                              col1, col2 = st.columns(2)
+                              
+                              with col1:
+                                  st.markdown("#### 📊 财务系统信息")
+                                  display_financial_info(selected_financial)
+                              
+                              with col2:
+                                  st.markdown("#### 📋 实物台账信息")
+                                  display_physical_info(corresponding_asset)
+                              
+                              # 差异分析
+                              st.markdown("#### 📊 差异分析")
+                              display_difference_analysis(selected_financial, corresponding_asset)
+                          else:
+                              st.error(f"❌ 未找到财务编号 {financial_code} 对应的实物资产")
+              
+              else:  # 对比显示
+                  if len(selected_rows) <= 5:  # 限制对比数量
+                      st.markdown("### 📊 多资产对比")
+                      
+                      # 创建对比表格
+                      comparison_data = []
+                      for _, selected_financial in selected_rows.iterrows():
+                          financial_code = selected_financial['财务系统编号']
+                          
+                          # 查找对应的实物资产
+                          corresponding_asset = None
+                          physical_code = None
+                          
+                          # 在映射数据中查找对应关系
+                          for mapping in mapping_data:
+                              if mapping.get("财务系统编号") == financial_code:
+                                  physical_code = mapping.get("实物台账编号")
+                                  # 在实物数据中查找对应资产
+                                  for physical in physical_data:
+                                      if physical.get("固定资产编号") == physical_code:
+                                          corresponding_asset = physical
+                                          break
+                                  break
+                          
+                          if corresponding_asset:
+                              financial_value = selected_financial.get('资产价值', 0)
+                              physical_value = corresponding_asset.get('资产价值', 0)
+                              comparison_data.append({
+                                  "财务编号": financial_code,
+                                  "实物编号": physical_code,
+                                  "资产名称": selected_financial.get('资产名称', ''),
+                                  "财务价值": financial_value,
+                                  "实物价值": physical_value,
+                                  "价值差异": financial_value - physical_value,
+                                  "财务部门": selected_financial.get('部门名称', ''),
+                                  "实物部门": corresponding_asset.get('存放部门', ''),
+                                  "状态": "✅ 匹配" if abs(financial_value - physical_value) < 0.01 else "⚠️ 差异"
+                              })
+                          else:
+                              financial_value = selected_financial.get('资产价值', 0)
+                              comparison_data.append({
+                                  "财务编号": financial_code,
+                                  "实物编号": "未找到",
+                                  "资产名称": selected_financial.get('资产名称', ''),
+                                  "财务价值": financial_value,
+                                  "实物价值": 0,
+                                  "价值差异": financial_value,
+                                  "财务部门": selected_financial.get('部门名称', ''),
+                                  "实物部门": "无",
+                                  "状态": "❌ 未匹配"
+                              })
+                      
+                      if comparison_data:
+                          comparison_df = pd.DataFrame(comparison_data)
+                          st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                          
+                          # 汇总统计
+                          col1, col2, col3, col4 = st.columns(4)
+                          with col1:
+                              matched_count = len([d for d in comparison_data if "匹配" in d["状态"]])
+                              st.metric("匹配数量", f"{matched_count}/{len(comparison_data)}")
+                          with col2:
+                              total_financial = sum(d["财务价值"] for d in comparison_data)
+                              st.metric("财务总值", f"¥{total_financial:,.2f}")
+                          with col3:
+                              total_physical = sum(d["实物价值"] for d in comparison_data)
+                              st.metric("实物总值", f"¥{total_physical:,.2f}")
+                          with col4:
+                              total_diff = sum(d["价值差异"] for d in comparison_data)
+                              st.metric("总差异", f"¥{total_diff:,.2f}")
+                  else:
+                      st.warning("⚠️ 对比显示最多支持5个资产，请减少选择数量或使用其他显示方式")
           else:
               st.info("👆 请在上方表格中勾选要查看的资产")
       else:
@@ -777,7 +879,7 @@ def all_data_view_page():
       
       st.markdown("---")
       st.subheader("📋 实物台账明细")
-      st.info("💡 点击下方表格中的复选框选择资产，系统将自动显示对应的财务系统信息")
+      st.info("💡 点击下方表格中的复选框选择资产，支持多选。系统将为每个选中的资产显示对应的财务系统信息")
       
       # 创建DataFrame
       df = pd.DataFrame(physical_data)
@@ -805,7 +907,7 @@ def all_data_view_page():
               column_config={
                   "选择": st.column_config.CheckboxColumn(
                       "选择",
-                      help="选择要查看对应关系的资产",
+                      help="选择要查看对应关系的资产（支持多选）",
                       default=False,
                   )
               },
@@ -816,79 +918,109 @@ def all_data_view_page():
           selected_rows = edited_df[edited_df["选择"] == True]
           
           if len(selected_rows) > 0:
-              # 自动显示第一个选中行的对应资产信息
-              selected_physical = selected_rows.iloc[0]
-              physical_code = selected_physical['固定资产编号']
+              st.success(f"✅ 已选择 {len(selected_rows)} 个资产")
               
-              st.success(f"✅ 已选择资产：{physical_code} - {selected_physical['固定资产名称']}")
-              
-              # 查找对应的财务资产
-              corresponding_asset, financial_code = get_mapping_info(
-                  physical_code, "physical", mapping_data, financial_data, physical_data
-              )
-              
-              if corresponding_asset:
-                  st.success(f"✅ 找到对应的财务资产：{financial_code}")
-                  
-                  # 显示对比信息
-                  col1, col2 = st.columns(2)
-                  
-                  with col1:
-                      st.markdown("### 📋 实物台账信息")
-                      st.write(f"**编号**：{selected_physical['固定资产编号']}")
-                      st.write(f"**名称**：{selected_physical['固定资产名称']}")
-                      st.write(f"**类型**：{selected_physical['固定资产类型']}")
-                      st.write(f"**规格**：{selected_physical['规格型号']}")
-                      st.write(f"**价值**：¥{selected_physical['资产价值']:,.2f}")
-                      st.write(f"**累计折旧**：¥{selected_physical['累计折旧额']:,.2f}")
-                      net_value = selected_physical['资产价值'] - selected_physical['累计折旧额']
-                      st.write(f"**净值**：¥{net_value:,.2f}")
-                      st.write(f"**入账日期**：{selected_physical['入账日期']}")
-                      st.write(f"**存放部门**：{selected_physical['存放部门']}")
-                      st.write(f"**地点**：{selected_physical['地点']}")
-                      st.write(f"**使用人**：{selected_physical['使用人']}")
-                      st.write(f"**保管人**：{selected_physical['保管人']}")
-                      st.write(f"**使用状态**：{selected_physical['使用状态']}")
-                  
-                  with col2:
-                      st.markdown("### 📊 财务系统信息")
-                      st.write(f"**编号**：{corresponding_asset['财务系统编号']}")
-                      st.write(f"**名称**：{corresponding_asset['资产名称']}")
-                      st.write(f"**分类**：{corresponding_asset['资产分类']}")
-                      st.write(f"**规格**：{corresponding_asset['资产规格']}")
-                      st.write(f"**价值**：¥{corresponding_asset['资产价值']:,.2f}")
-                      st.write(f"**累积折旧**：¥{corresponding_asset['累积折旧']:,.2f}")
-                      st.write(f"**账面价值**：¥{corresponding_asset['账面价值']:,.2f}")
-                      st.write(f"**取得日期**：{corresponding_asset['取得日期']}")
-                      st.write(f"**部门**：{corresponding_asset['部门名称']}")
-                      st.write(f"**保管人**：{corresponding_asset['保管人']}")
-                      st.write(f"**备注**：{corresponding_asset['备注']}")
-                  
-                  # 差异分析
-                  st.markdown("### 📊 差异分析")
-                  value_diff = selected_physical['资产价值'] - corresponding_asset['资产价值']
-                  depreciation_diff = selected_physical['累计折旧额'] - corresponding_asset['累积折旧']
-                  
-                  col1, col2, col3 = st.columns(3)
-                  with col1:
-                      if abs(value_diff) > 0.01:
-                          st.error(f"价值差异：¥{value_diff:,.2f}")
-                      else:
-                          st.success("✅ 价值一致")
-                  
-                  with col2:
-                      if abs(depreciation_diff) > 0.01:
-                          st.error(f"折旧差异：¥{depreciation_diff:,.2f}")
-                      else:
-                          st.success("✅ 折旧一致")
-                  
-                  with col3:
-                      if selected_physical['存放部门'] != corresponding_asset['部门名称']:
-                          st.warning("⚠️ 部门不一致")
-                      else:
-                          st.success("✅ 部门一致")
+              # 创建选择显示方式的选项
+              if len(selected_rows) > 1:
+                  display_option = st.radio(
+                      "选择显示方式：",
+                      ["标签页显示（推荐）", "列表显示"],
+                      horizontal=True,
+                      key="physical_display_option"
+                  )
               else:
-                  st.error(f"❌ 未找到实物编号 {physical_code} 对应的财务资产")
+                  display_option = "标签页显示（推荐）"
+              
+              # 根据选择的显示方式展示结果
+              if display_option == "标签页显示（推荐）":
+                  # 为每个选中的资产创建标签页
+                  tab_names = []
+                  for idx, (_, row) in enumerate(selected_rows.iterrows()):
+                      asset_name = row['固定资产名称']
+                      if len(asset_name) > 10:
+                          asset_name = asset_name[:10] + "..."
+                      tab_names.append(f"{row['固定资产编号']} - {asset_name}")
+                  
+                  tabs = st.tabs(tab_names)
+                  
+                  for tab_idx, (tab, (_, selected_physical)) in enumerate(zip(tabs, selected_rows.iterrows())):
+                      with tab:
+                          physical_code = selected_physical['固定资产编号']
+                          
+                          # 查找对应的财务资产
+                          corresponding_asset = None
+                          financial_code = None
+                          
+                          # 在映射数据中查找对应关系
+                          for mapping in mapping_data:
+                              if mapping.get("实物台账编号") == physical_code:
+                                  financial_code = mapping.get("财务系统编号")
+                                  # 在财务数据中查找对应资产
+                                  for financial in financial_data:
+                                      if financial.get("财务系统编号") == financial_code:
+                                          corresponding_asset = financial
+                                          break
+                                  break
+                          
+                          if corresponding_asset:
+                              st.success(f"✅ 找到对应的财务资产：{financial_code}")
+                              
+                              # 显示对比信息
+                              col1, col2 = st.columns(2)
+                              
+                              with col1:
+                                  st.markdown("### 📋 实物台账信息")
+                                  display_physical_info(selected_physical)
+                              
+                              with col2:
+                                  st.markdown("### 📊 财务系统信息")
+                                  display_financial_info(corresponding_asset)
+                              
+                              # 差异分析
+                              st.markdown("### 📊 差异分析")
+                              display_difference_analysis(corresponding_asset, selected_physical, reverse=True)
+                          else:
+                              st.error(f"❌ 未找到实物编号 {physical_code} 对应的财务资产")
+              
+              else:  # 列表显示
+                  for idx, (_, selected_physical) in enumerate(selected_rows.iterrows()):
+                      with st.expander(f"📋 资产 {idx+1}: {selected_physical['固定资产编号']} - {selected_physical['固定资产名称']}", expanded=idx==0):
+                          physical_code = selected_physical['固定资产编号']
+                          
+                          # 查找对应的财务资产
+                          corresponding_asset = None
+                          financial_code = None
+                          
+                          # 在映射数据中查找对应关系
+                          for mapping in mapping_data:
+                              if mapping.get("实物台账编号") == physical_code:
+                                  financial_code = mapping.get("财务系统编号")
+                                  # 在财务数据中查找对应资产
+                                  for financial in financial_data:
+                                      if financial.get("财务系统编号") == financial_code:
+                                          corresponding_asset = financial
+                                          break
+                                  break
+                          
+                          if corresponding_asset:
+                              st.success(f"✅ 找到对应的财务资产：{financial_code}")
+                              
+                              # 显示对比信息
+                              col1, col2 = st.columns(2)
+                              
+                              with col1:
+                                  st.markdown("#### 📋 实物台账信息")
+                                  display_physical_info(selected_physical)
+                              
+                              with col2:
+                                  st.markdown("#### 📊 财务系统信息")
+                                  display_financial_info(corresponding_asset)
+                              
+                              # 差异分析
+                              st.markdown("#### 📊 差异分析")
+                              display_difference_analysis(corresponding_asset, selected_physical, reverse=True)
+                          else:
+                              st.error(f"❌ 未找到实物编号 {physical_code} 对应的财务资产")
           else:
               st.info("👆 请在上方表格中勾选要查看的资产")
       else:
@@ -900,18 +1032,20 @@ def all_data_view_page():
       # 构建完整的对应关系表
       mapping_summary = []
       for mapping in mapping_data:
-          financial_record = next((f for f in financial_data if f["财务系统编号"] == mapping["财务系统编号"]), {})
-          physical_record = next((p for p in physical_data if p["固定资产编号"] == mapping["实物台账编号"]), {})
+          financial_record = next((f for f in financial_data if f.get("财务系统编号") == mapping.get("财务系统编号")), {})
+          physical_record = next((p for p in physical_data if p.get("固定资产编号") == mapping.get("实物台账编号")), {})
           
           if financial_record and physical_record:
+              financial_value = financial_record.get("资产价值", 0)
+              physical_value = physical_record.get("资产价值", 0)
               summary_record = {
-                  "财务系统编号": mapping["财务系统编号"],
-                  "实物台账编号": mapping["实物台账编号"],
+                  "财务系统编号": mapping.get("财务系统编号", ""),
+                  "实物台账编号": mapping.get("实物台账编号", ""),
                   "财务-资产名称": financial_record.get("资产名称", ""),
                   "实物-资产名称": physical_record.get("固定资产名称", ""),
-                  "财务-价值": financial_record.get("资产价值", 0),
-                  "实物-价值": physical_record.get("资产价值", 0),
-                  "价值差异": financial_record.get("资产价值", 0) - physical_record.get("资产价值", 0),
+                  "财务-价值": financial_value,
+                  "实物-价值": physical_value,
+                  "价值差异": financial_value - physical_value,
                   "财务-部门": financial_record.get("部门名称", ""),
                   "实物-部门": physical_record.get("存放部门", ""),
                   "财务-保管人": financial_record.get("保管人", ""),
@@ -949,6 +1083,80 @@ def all_data_view_page():
           )
       else:
           st.info("暂无完整的对应关系数据")
+
+
+# 辅助函数
+def display_financial_info(financial_asset):
+  """显示财务系统信息"""
+  st.write(f"**编号**：{financial_asset.get('财务系统编号', 'N/A')}")
+  st.write(f"**名称**：{financial_asset.get('资产名称', 'N/A')}")
+  st.write(f"**分类**：{financial_asset.get('资产分类', 'N/A')}")
+  st.write(f"**规格**：{financial_asset.get('资产规格', 'N/A')}")
+  st.write(f"**价值**：¥{financial_asset.get('资产价值', 0):,.2f}")
+  st.write(f"**累积折旧**：¥{financial_asset.get('累积折旧', 0):,.2f}")
+  st.write(f"**账面价值**：¥{financial_asset.get('账面价值', 0):,.2f}")
+  st.write(f"**取得日期**：{financial_asset.get('取得日期', 'N/A')}")
+  st.write(f"**部门**：{financial_asset.get('部门名称', 'N/A')}")
+  st.write(f"**保管人**：{financial_asset.get('保管人', 'N/A')}")
+  st.write(f"**备注**：{financial_asset.get('备注', 'N/A')}")
+
+def display_physical_info(physical_asset):
+  """显示实物台账信息"""
+  st.write(f"**编号**：{physical_asset.get('固定资产编号', 'N/A')}")
+  st.write(f"**名称**：{physical_asset.get('固定资产名称', 'N/A')}")
+  st.write(f"**类型**：{physical_asset.get('固定资产类型', 'N/A')}")
+  st.write(f"**规格**：{physical_asset.get('规格型号', 'N/A')}")
+  st.write(f"**价值**：¥{physical_asset.get('资产价值', 0):,.2f}")
+  st.write(f"**累计折旧**：¥{physical_asset.get('累计折旧额', 0):,.2f}")
+  asset_value = physical_asset.get('资产价值', 0)
+  depreciation = physical_asset.get('累计折旧额', 0)
+  net_value = asset_value - depreciation
+  st.write(f"**净值**：¥{net_value:,.2f}")
+  st.write(f"**入账日期**：{physical_asset.get('入账日期', 'N/A')}")
+  st.write(f"**存放部门**：{physical_asset.get('存放部门', 'N/A')}")
+  st.write(f"**地点**：{physical_asset.get('地点', 'N/A')}")
+  st.write(f"**使用人**：{physical_asset.get('使用人', 'N/A')}")
+  st.write(f"**保管人**：{physical_asset.get('保管人', 'N/A')}")
+  st.write(f"**使用状态**：{physical_asset.get('使用状态', 'N/A')}")
+
+def display_difference_analysis(financial_asset, physical_asset, reverse=False):
+  """显示差异分析"""
+  financial_value = financial_asset.get('资产价值', 0)
+  physical_value = physical_asset.get('资产价值', 0)
+  financial_depreciation = financial_asset.get('累积折旧', 0)
+  physical_depreciation = physical_asset.get('累计折旧额', 0)
+  financial_dept = financial_asset.get('部门名称', '')
+  physical_dept = physical_asset.get('存放部门', '')
+  
+  if reverse:
+      # 实物台账视角
+      value_diff = physical_value - financial_value
+      depreciation_diff = physical_depreciation - financial_depreciation
+  else:
+      # 财务系统视角
+      value_diff = financial_value - physical_value
+      depreciation_diff = financial_depreciation - physical_depreciation
+  
+  dept_match = financial_dept == physical_dept
+  
+  col1, col2, col3 = st.columns(3)
+  with col1:
+      if abs(value_diff) > 0.01:
+          st.error(f"价值差异：¥{value_diff:,.2f}")
+      else:
+          st.success("✅ 价值一致")
+  
+  with col2:
+      if abs(depreciation_diff) > 0.01:
+          st.error(f"折旧差异：¥{depreciation_diff:,.2f}")
+      else:
+          st.success("✅ 折旧一致")
+  
+  with col3:
+      if not dept_match:
+          st.warning("⚠️ 部门不一致")
+      else:
+          st.success("✅ 部门一致")
 def mapping_query_page():
   """映射关系查询页面"""
   st.header("🔍 资产映射关系查询")
