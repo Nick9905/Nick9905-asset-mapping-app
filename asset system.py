@@ -4,6 +4,29 @@ import json
 import os
 from datetime import datetime
 import io
+import subprocess
+import sys
+
+# 检查并安装依赖
+def install_and_import(package):
+    try:
+        __import__(package)
+    except ImportError:
+        st.info(f"正在安装 {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        __import__(package)
+
+# 确保openpyxl已安装
+try:
+    import openpyxl
+except ImportError:
+    st.warning("正在安装必要的依赖包，请稍候...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+        import openpyxl
+        st.success("依赖包安装成功！")
+    except:
+        st.error("无法自动安装依赖包，请联系管理员")
 
 # 页面配置
 st.set_page_config(
