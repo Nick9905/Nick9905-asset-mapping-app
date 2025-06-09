@@ -463,20 +463,20 @@ def admin_page():
                 with st.expander("数据预览"):
                     st.dataframe(df.head())
 
-                if st.button("导入财务数据", key="admin_import_financial"):
-    try:
-        # 转换DataFrame为所需格式
-        financial_records = []
-        for _, row in df.iterrows():
-            record = {
-                "财务系统编号": str(row.get("财务系统编号", "")),
-                "资产名称": str(row.get("资产名称", "")),
-                "资产分类": str(row.get("资产分类", "")),
-                "资产价值": float(row.get("资产价值", 0)),
-                "部门名称": str(row.get("部门名称", "")),
-                "保管人": str(row.get("保管人", ""))
+        if st.button("导入财务数据", key="admin_import_financial"):
+            try:
+               # 转换DataFrame为所需格式
+               financial_records = []
+               for _, row in df.iterrows():
+                   record = {
+                       "财务系统编号": str(row.get("财务系统编号", "")),
+                       "资产名称": str(row.get("资产名称", "")),
+                       "资产分类": str(row.get("资产分类", "")),
+                       "资产价值": float(row.get("资产价值", 0)),
+                       "部门名称": str(row.get("部门名称", "")),
+                       "保管人": str(row.get("保管人", ""))
             }
-            financial_records.append(record)
+               financial_records.append(record)
         
         # 保存数据
         if save_data(FINANCIAL_DATA_FILE, financial_records):
