@@ -43,7 +43,139 @@ FINANCIAL_DATA_FILE = "financial_assets.json"
 PHYSICAL_DATA_FILE = "physical_assets.json"
 MAPPING_DATA_FILE = "asset_mapping.json"
 
-# ... 继续其余代码（保持不变）
+# ========== 添加缺失的函数定义 ==========
+
+@st.cache_data
+def load_data(filename):
+    """加载JSON数据文件"""
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        st.error(f"加载数据失败: {e}")
+        return []
+
+def save_data(filename, data):
+    """保存数据到JSON文件"""
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"保存数据失败: {e}")
+        return False
+
+def create_demo_data():
+    """创建演示数据"""
+    # 演示财务数据
+    demo_financial = [
+        {"财务系统编号": "F001", "资产名称": "办公电脑", "资产分类": "电子设备", "资产价值": 5000.00, "部门名称": "行政部", "保管人": "张三"},
+        {"财务系统编号": "F002", "资产名称": "打印机", "资产分类": "办公设备", "资产价值": 2000.00, "部门名称": "财务部", "保管人": "李四"},
+        {"财务系统编号": "F003", "资产名称": "办公桌", "资产分类": "家具", "资产价值": 800.00, "部门名称": "人事部", "保管人": "王五"},
+        {"财务系统编号": "F004", "资产名称": "空调", "资产分类": "电器", "资产价值": 3000.00, "部门名称": "总经理室", "保管人": "赵六"}
+    ]
+    
+    # 演示实物数据
+    demo_physical = [
+        {"固定资产编号": "P001", "固定资产名称": "办公电脑", "固定资产类型": "电子设备", "资产价值": 5000.00, "存放部门": "行政部", "保管人": "张三"},
+        {"固定资产编号": "P002", "固定资产名称": "打印机", "固定资产类型": "办公设备", "资产价值": 2000.00, "存放部门": "财务部", "保管人": "李四"},
+        {"固定资产编号": "P003", "固定资产名称": "办公桌", "固定资产类型": "家具", "资产价值": 800.00, "存放部门": "人事部", "保管人": "王五"},
+        {"固定资产编号": "P004", "固定资产名称": "空调", "固定资产类型": "电器", "资产价值": 3000.00, "存放部门": "总经理室", "保管人": "赵六"}
+    ]
+    
+    # 演示映射关系
+    demo_mapping = [
+        {"财务系统编号": "F001", "实物台账编号": "P001"},
+        {"财务系统编号": "F002", "实物台账编号": "P002"},
+        {"财务系统编号": "F003", "实物台账编号": "P003"},
+        {"财务系统编号": "F004", "实物台账编号": "P004"}
+    ]
+    
+    # 如果文件不存在，创建演示数据
+    if not os.path.exists(FINANCIAL_DATA_FILE):
+        save_data(FINANCIAL_DATA_FILE, demo_financial)
+    if not os.path.exists(PHYSICAL_DATA_FILE):
+        save_data(PHYSICAL_DATA_FILE, demo_physical)
+    if not os.path.exists(MAPPING_DATA_FILE):
+        save_data(MAPPING_DATA_FILE, demo_mapping)
+
+def show_financial_summary(financial_data):
+    """显示财务系统汇总信息"""
+    if not financial_data:
+        st.info("暂无财务数据")
+        return
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("财务资产总数", len(financial_data))
+    with col2:
+        total_value = sum(item.get("资产价值", 0) for item in financial_data)
+        st.metric("资产总价值", f"¥{total_value:,.2f}")
+    with col3:
+        categories = set(item.get("资产分类", "") for item in financial_data)
+        st.metric("资产分类数", len(categories))
+
+def show_physical_summary(physical_data):
+    """显示实物台账汇总信息"""
+    if not physical_data:
+        st.info("暂无实物数据")
+        return
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("实物资产总数", len(physical_data))
+    with col2:
+        total_value = sum(item.get("资产价值", 0) for item in physical_data)
+        st.metric("资产总价值", f"¥{total_value:,.2f}")
+    with col3:
+        types = set(item.get("固定资产类型", "") for item in physical_data)
+        st.metric("资产类型数", len(types))
+
+def mapping_query_page():
+    """资产映射查询页面"""
+    st.header("🔍 快速查询")
+    
+    # 搜索框
+    search_term = st.text_input("请输入资产编号或名称", placeholder="例如：F001 或 办公电脑")
+    
+    if search_term:
+        # 加载数据
+        financial_data = load_data(FINANCIAL_DATA_FILE)
+        physical_data = load_data(PHYSICAL_DATA_FILE)
+        mapping_data = load_data(MAPPING_DATA_FILE)
+        
+        # 搜索逻辑
+        results = []
+        for mapping in mapping_data:
+            financial_record = next((f for f in financial_data if f["财务系统编号"] == mapping["财务系统编号"]), None)
+            physical_record = next((p for p in physical_data if p["固定资产编号"] == mapping["实物台账编号"]), None)
+            
+            if financial_record and physical_record:
+                # 检查是否匹配搜索条件
+                if (search_term.lower() in financial_record.get("财务系统编号", "").lower() or
+                    search_term.lower() in financial_record.get("资产名称", "").lower() or
+                    search_term.lower() in physical_record.get("固定资产编号", "").lower() or
+                    search_term.lower() in physical_record.get("固定资产名称", "").lower()):
+                    
+                    results.append({
+                        "财务系统编号": financial_record["财务系统编号"],
+                        "实物台账编号": physical_record["固定资产编号"],
+                        "资产名称": financial_record["资产名称"],
+                        "资产价值": financial_record["资产价值"],
+                        "部门": financial_record.get("部门名称", ""),
+                        "保管人": financial_record.get("保管人", "")
+                    })
+        
+        if results:
+            st.success(f"找到 {len(results)} 条匹配记录")
+            df = pd.DataFrame(results)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("未找到匹配的记录")
+
+# ========== 你的原有函数保持不变 ==========
 
 def all_data_view_page():
     """查看全部对应关系页面"""
