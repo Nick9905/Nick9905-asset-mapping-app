@@ -1,3 +1,4 @@
+import xlsxwriter
 import streamlit as st
 import pandas as pd
 import json
@@ -585,27 +586,28 @@ for financial_code, physical_code in f_to_p_mapping.items():
                 "财务价值": financial_record.get("资产价值", 0),
                 "实物价值": physical_record.get("资产价值", 0),
                 "差异金额": diff
-            })
-      
-      if value_differences:
-          total_diff = sum(abs(d["差异金额"]) for d in value_differences)
-          avg_diff = total_diff / len(value_differences)
-          
-          col1, col2, col3 = st.columns(3)
-          with col1:
-              st.metric("差异项数", len(value_differences))
-          with col2:
-              st.metric("差异总额", f"¥{total_diff:,.2f}")
-          with col3:
-              st.metric("平均差异", f"¥{avg_diff:,.2f}")
-          
-          # 显示差异明细
-          with st.expander("查看价值差异明细"):
-              df_diff = pd.DataFrame(value_differences)
-              df_diff = df_diff.sort_values(by="差异金额", key=abs, ascending=False)
-              st.dataframe(df_diff.head(20), use_container_width=True)
-      else:
-          st.success("✅ 所有已匹配资产的价值完全一致")
+                        })
+
+if value_differences:
+    total_diff = sum(abs(d["差异金额"]) for d in value_differences)
+    avg_diff = total_diff / len(value_differences)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("差异项数", len(value_differences))
+    with col2:
+        st.metric("差异总额", f"¥{total_diff:,.2f}")
+    with col3:
+        st.metric("平均差异", f"¥{avg_diff:,.2f}")
+    
+    # 显示差异明细
+    with st.expander("查看价值差异明细"):
+        df_diff = pd.DataFrame(value_differences)
+        df_diff = df_diff.sort_values(by="差异金额", key=abs, ascending=False)
+        st.dataframe(df_diff.head(20), use_container_width=True)
+else:
+    st.success("✅ 所有已匹配资产的价值完全一致")
+
 
   # ========== 全部数据查看页面 ==========
 
