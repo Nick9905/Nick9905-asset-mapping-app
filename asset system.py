@@ -1,6 +1,3 @@
-以下是完整可复制的代码版本：
-
-````python
 import streamlit as st
 import pandas as pd
 import json
