@@ -570,22 +570,22 @@ def data_statistics_page():
     f_to_p_mapping, _ = create_mapping_index(mapping_data)
     
     value_differences = []
-    for financial_code, physical_code in f_to_p_mapping.items():
-        financial_record = financial_index.get(financial_code)
-          physical_record = physical_index.get(physical_code)
-          
-          if financial_record and physical_record:
-              diff = financial_record.get("资产价值", 0) - physical_record.get("资产价值", 0)
-              if abs(diff) > 0.01:
-                  value_differences.append({
-                      "财务系统编号": financial_code,
-                      "实物台账编号": physical_code,
-                      "财务资产名称": financial_record.get("资产名称", ""),
-                      "实物资产名称": physical_record.get("固定资产名称", ""),
-                      "财务价值": financial_record.get("资产价值", 0),
-                      "实物价值": physical_record.get("资产价值", 0),
-                      "差异金额": diff
-                  })
+for financial_code, physical_code in f_to_p_mapping.items():
+    financial_record = financial_index.get(financial_code)
+    physical_record = physical_index.get(physical_code)
+    
+    if financial_record and physical_record:
+        diff = financial_record.get("资产价值", 0) - physical_record.get("资产价值", 0)
+        if abs(diff) > 0.01:
+            value_differences.append({
+                "财务系统编号": financial_code,
+                "实物台账编号": physical_code,
+                "财务资产名称": financial_record.get("资产名称", ""),
+                "实物资产名称": physical_record.get("固定资产名称", ""),
+                "财务价值": financial_record.get("资产价值", 0),
+                "实物价值": physical_record.get("资产价值", 0),
+                "差异金额": diff
+            })
       
       if value_differences:
           total_diff = sum(abs(d["差异金额"]) for d in value_differences)
