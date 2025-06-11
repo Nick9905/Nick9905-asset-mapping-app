@@ -4,7 +4,6 @@ import json
 import os
 from datetime import datetime
 import io
-from functools import lru_cache
 
 # 页面配置
 st.set_page_config(
@@ -18,16 +17,17 @@ FINANCIAL_DATA_FILE = "financial_assets.json"
 PHYSICAL_DATA_FILE = "physical_assets.json"
 MAPPING_DATA_FILE = "asset_mapping.json"
 
-# ========== 缓存和性能优化 ==========
+# ========== 性能优化的数据加载 ==========
 
-@st.cache_data(ttl=300)  # 缓存5分钟
+@st.cache_data(ttl=300, show_spinner=False)
 def load_data_cached(file_path):
   """加载数据（带缓存）"""
   if os.path.exists(file_path):
       try:
           with open(file_path, 'r', encoding='utf-8') as f:
               return json.load(f)
-      except:
+      except Exception as e:
+          st.error(f"读取文件 {file_path} 失败: {str(e)}")
           return []
   return []
 
@@ -37,12 +37,17 @@ def load_data(file_path):
 
 def save_data(data, file_path):
   """保存数据并清除缓存"""
-  with open(file_path, 'w', encoding='utf-8') as f:
-      json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-  # 清除缓存以确保数据一致性
-  load_data_cached.clear()
+  try:
+      with open(file_path, 'w', encoding='utf-8') as f:
+          json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+      # 清除缓存以确保数据一致性
+      load_data_cached.clear()
+      return True
+  except Exception as e:
+      st.error(f"保存文件失败: {str(e)}")
+      return False
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def create_mapping_index(mapping_data):
   """创建映射索引以提高查询效率"""
   financial_to_physical = {}
@@ -58,7 +63,7 @@ def create_mapping_index(mapping_data):
   
   return financial_to_physical, physical_to_financial
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def create_data_index(data, key_field):
   """创建数据索引"""
   return {item[key_field]: item for item in data if item.get(key_field)}
@@ -90,8 +95,6 @@ def safe_float_convert(value):
           return 0.0
   if isinstance(value, (int, float)):
       return float(value)
-  if isinstance(value, (datetime, pd.Timestamp)):
-      return 0.0
   return 0.0
 
 def update_data_generic(existing_data, new_data, key_field):
@@ -111,8 +114,7 @@ def update_data_generic(existing_data, new_data, key_field):
           existing_dict[key_value] = new_item
           new_count += 1
   
-  st.info(f"📊 更新统计：更新 {updated_count} 条，新增 {new_count} 条")
-  return list(existing_dict.values())
+  return list(existing_dict.values()), updated_count, new_count
 
 # ========== 数据导入函数 ==========
 
@@ -196,7 +198,21 @@ def import_mapping_data(df):
           continue
   return processed_data
 
-# ========== 页面函数 ==========
+# ========== 查询函数 ==========
+
+def find_corresponding_asset(code, code_type, financial_index, physical_index, f_to_p_mapping, p_to_f_mapping):
+  """优化的资产查找函数"""
+  if code_type == "financial":
+      physical_code = f_to_p_mapping.get(code)
+      if physical_code:
+          return physical_index.get(physical_code), physical_code
+  else:
+      financial_code = p_to_f_mapping.get(code)
+      if financial_code:
+          return financial_index.get(financial_code), financial_code
+  return None, None
+
+# ========== 数据导入页面 ==========
 
 def data_import_page():
   """数据导入页面"""
@@ -222,10 +238,10 @@ def data_import_page():
                       
                       if processed_data:
                           existing_data = load_data(FINANCIAL_DATA_FILE)
-                          updated_data = update_data_generic(existing_data, processed_data, "财务系统编号")
-                          save_data(updated_data, FINANCIAL_DATA_FILE)
-                          st.success(f"✅ 成功导入 {len(processed_data)} 条财务数据！")
-                          st.rerun()
+                          updated_data, updated_count, new_count = update_data_generic(existing_data, processed_data, "财务系统编号")
+                          if save_data(updated_data, FINANCIAL_DATA_FILE):
+                              st.success(f"✅ 成功导入财务数据！更新 {updated_count} 条，新增 {new_count} 条")
+                              st.rerun()
                       else:
                           st.warning("没有有效数据可导入")
                           
@@ -250,10 +266,10 @@ def data_import_page():
                       
                       if processed_data:
                           existing_data = load_data(PHYSICAL_DATA_FILE)
-                          updated_data = update_data_generic(existing_data, processed_data, "固定资产编号")
-                          save_data(updated_data, PHYSICAL_DATA_FILE)
-                          st.success(f"✅ 成功导入 {len(processed_data)} 条实物数据！")
-                          st.rerun()
+                          updated_data, updated_count, new_count = update_data_generic(existing_data, processed_data, "固定资产编号")
+                          if save_data(updated_data, PHYSICAL_DATA_FILE):
+                              st.success(f"✅ 成功导入实物数据！更新 {updated_count} 条，新增 {new_count} 条")
+                              st.rerun()
                       else:
                           st.warning("没有有效数据可导入")
                           
@@ -278,66 +294,278 @@ def data_import_page():
                       
                       if processed_data:
                           existing_data = load_data(MAPPING_DATA_FILE)
-                          updated_data = update_data_generic(existing_data, processed_data, "实物台账编号")
-                          save_data(updated_data, MAPPING_DATA_FILE)
-                          st.success(f"✅ 成功导入 {len(processed_data)} 条对应关系！")
-                          st.rerun()
+                          updated_data, updated_count, new_count = update_data_generic(existing_data, processed_data, "实物台账编号")
+                          if save_data(updated_data, MAPPING_DATA_FILE):
+                              st.success(f"✅ 成功导入对应关系！更新 {updated_count} 条，新增 {new_count} 条")
+                              st.rerun()
                       else:
                           st.warning("没有有效数据可导入")
                           
           except Exception as e:
               st.error(f"❌ 文件读取失败：{str(e)}")
 
+# ========== 映射查询页面 ==========
+
 def mapping_query_page():
   """映射关系查询页面"""
   st.header("🔍 资产映射关系查询")
-  st.info("请先导入数据后再进行查询")
+  
+  # 加载数据和创建索引
+  with st.spinner("加载数据中..."):
+      financial_data = load_data(FINANCIAL_DATA_FILE)
+      physical_data = load_data(PHYSICAL_DATA_FILE)
+      mapping_data = load_data(MAPPING_DATA_FILE)
+  
+  if not all([financial_data, physical_data, mapping_data]):
+      st.warning("⚠️ 请先导入所有必要的数据")
+      return
+  
+  # 创建索引以提高查询效率
+  financial_index = create_data_index(financial_data, "财务系统编号")
+  physical_index = create_data_index(physical_data, "固定资产编号")
+  f_to_p_mapping, p_to_f_mapping = create_mapping_index(mapping_data)
+  
+  # 查询界面
+  col1, col2 = st.columns(2)
+  
+  with col1:
+      query_type = st.selectbox("查询方式", ["按财务系统编号查询", "按实物台账编号查询", "按资产名称查询"])
+  
+  with col2:
+      if query_type == "按财务系统编号查询":
+          query_value = st.selectbox("选择财务系统编号", [""] + list(financial_index.keys()))
+      elif query_type == "按实物台账编号查询":
+          query_value = st.selectbox("选择实物台账编号", [""] + list(physical_index.keys()))
+      else:
+          query_value = st.text_input("输入资产名称关键词")
+  
+  if query_value and st.button("🔍 查询", type="primary"):
+      with st.spinner("查询中..."):
+          results = []
+          
+          if query_type == "按财务系统编号查询":
+              financial_record = financial_index.get(query_value)
+              if financial_record:
+                  physical_record, physical_code = find_corresponding_asset(
+                      query_value, "financial", financial_index, physical_index, f_to_p_mapping, p_to_f_mapping
+                  )
+                  if physical_record:
+                      results.append({
+                          "financial": financial_record,
+                          "physical": physical_record
+                      })
+          
+          elif query_type == "按实物台账编号查询":
+              physical_record = physical_index.get(query_value)
+              if physical_record:
+                  financial_record, financial_code = find_corresponding_asset(
+                      query_value, "physical", financial_index, physical_index, f_to_p_mapping, p_to_f_mapping
+                  )
+                  if financial_record:
+                      results.append({
+                          "financial": financial_record,
+                          "physical": physical_record
+                      })
+          
+          else:  # 按资产名称查询
+              # 在财务系统中查找
+              for code, record in financial_index.items():
+                  if query_value.lower() in record.get("资产名称", "").lower():
+                      physical_record, _ = find_corresponding_asset(
+                          code, "financial", financial_index, physical_index, f_to_p_mapping, p_to_f_mapping
+                      )
+                      if physical_record:
+                          results.append({
+                              "financial": record,
+                              "physical": physical_record
+                          })
+              
+              # 在实物台账中查找
+              for code, record in physical_index.items():
+                  if query_value.lower() in record.get("固定资产名称", "").lower():
+                      financial_record, _ = find_corresponding_asset(
+                          code, "physical", financial_index, physical_index, f_to_p_mapping, p_to_f_mapping
+                      )
+                      if financial_record:
+                          # 避免重复
+                          if not any(r["financial"]["财务系统编号"] == financial_record["财务系统编号"] for r in results):
+                              results.append({
+                                  "financial": financial_record,
+                                  "physical": record
+                              })
+          
+          # 显示结果
+          display_query_results(results)
+
+def display_query_results(results):
+  """显示查询结果"""
+  if results:
+      st.success(f"✅ 找到 {len(results)} 条匹配记录")
+      
+      for idx, result in enumerate(results):
+          with st.expander(f"📌 记录 {idx + 1}: {result['financial']['资产名称']}", expanded=idx==0):
+              col1, col2 = st.columns(2)
+              
+              with col1:
+                  st.markdown("### 📊 财务系统信息")
+                  display_financial_info(result["financial"])
+              
+              with col2:
+                  st.markdown("### 📋 实物台账信息")
+                  display_physical_info(result["physical"])
+              
+              # 差异分析
+              display_difference_analysis(result["financial"], result["physical"])
+  else:
+      st.warning("❌ 未找到匹配的记录")
+
+def display_financial_info(financial_asset):
+  """显示财务信息"""
+  info_data = {
+      "编号": financial_asset.get('财务系统编号', 'N/A'),
+      "名称": financial_asset.get('资产名称', 'N/A'),
+      "分类": financial_asset.get('资产分类', 'N/A'),
+      "规格": financial_asset.get('资产规格', 'N/A'),
+      "价值": f"¥{financial_asset.get('资产价值', 0):,.2f}",
+      "累积折旧": f"¥{financial_asset.get('累积折旧', 0):,.2f}",
+      "账面价值": f"¥{financial_asset.get('账面价值', 0):,.2f}",
+      "部门": financial_asset.get('部门名称', 'N/A'),
+      "保管人": financial_asset.get('保管人', 'N/A'),
+      "取得日期": financial_asset.get('取得日期', 'N/A')
+  }
+  
+  for key, value in info_data.items():
+      st.write(f"**{key}**：{value}")
+
+def display_physical_info(physical_asset):
+  """显示实物信息"""
+  asset_value = physical_asset.get('资产价值', 0)
+  depreciation = physical_asset.get('累计折旧额', 0)
+  net_value = asset_value - depreciation
+  
+  info_data = {
+      "编号": physical_asset.get('固定资产编号', 'N/A'),
+      "名称": physical_asset.get('固定资产名称', 'N/A'),
+      "类型": physical_asset.get('固定资产类型', 'N/A'),
+      "规格": physical_asset.get('规格型号', 'N/A'),
+      "价值": f"¥{asset_value:,.2f}",
+      "累计折旧": f"¥{depreciation:,.2f}",
+      "净值": f"¥{net_value:,.2f}",
+      "部门": physical_asset.get('存放部门', 'N/A'),
+      "保管人": physical_asset.get('保管人', 'N/A'),
+      "入账日期": physical_asset.get('入账日期', 'N/A'),
+      "使用状态": physical_asset.get('使用状态', 'N/A')
+  }
+  
+  for key, value in info_data.items():
+      st.write(f"**{key}**：{value}")
+
+def display_difference_analysis(financial_asset, physical_asset):
+  """差异分析"""
+  st.markdown("### 📊 差异分析")
+  
+  financial_value = financial_asset.get('资产价值', 0)
+  physical_value = physical_asset.get('资产价值', 0)
+  value_diff = financial_value - physical_value
+  
+  col1, col2, col3 = st.columns(3)
+  
+  with col1:
+      if abs(value_diff) > 0.01:
+          st.error(f"价值差异：¥{value_diff:,.2f}")
+      else:
+          st.success("✅ 价值一致")
+  
+  with col2:
+      financial_dept = financial_asset.get('部门名称', '')
+      physical_dept = physical_asset.get('存放部门', '')
+      if financial_dept != physical_dept:
+          st.warning(f"⚠️ 部门不一致\n财务：{financial_dept}\n实物：{physical_dept}")
+      else:
+          st.success("✅ 部门一致")
+  
+  with col3:
+      financial_keeper = financial_asset.get('保管人', '')
+      physical_keeper = physical_asset.get('保管人', '')
+      if financial_keeper != physical_keeper:
+          st.warning(f"⚠️ 保管人不一致\n财务：{financial_keeper}\n实物：{physical_keeper}")
+      else:
+          st.success("✅ 保管人一致")
+
+# ========== 数据统计页面 ==========
 
 def data_statistics_page():
   """数据统计分析页面"""
   st.header("📊 数据统计分析")
-  st.info("请先导入数据后再查看统计")
-
-def all_data_view_page():
-  """查看全部对应关系页面"""
-  st.header("📋 全部资产对应关系")
-  st.info("请先导入数据后再查看详情")
-
-# ========== 主函数 ==========
-
-def main():
-  """主函数"""
-  st.title("🔗 资产映射关系查询系统")
   
-  # 侧边栏导航
-  with st.sidebar:
-      st.header("📋 系统导航")
-      page = st.selectbox(
-          "选择功能页面",
-          ["📥 数据导入", "🔍 映射查询", "📊 数据统计", "📋 全部数据"],
-          key="page_selector"
-      )
-      
-      st.markdown("---")
-      st.markdown("### 📝 使用说明")
-      st.markdown("""
-      1. **数据导入**：上传Excel文件导入数据
-      2. **映射查询**：查询资产对应关系
-      3. **数据统计**：查看统计分析结果
-      4. **全部数据**：浏览所有数据记录
-      """)
+  # 加载数据
+  with st.spinner("加载数据中..."):
+      financial_data = load_data(FINANCIAL_DATA_FILE)
+      physical_data = load_data(PHYSICAL_DATA_FILE)
+      mapping_data = load_data(MAPPING_DATA_FILE)
   
-  # 根据选择显示对应页面
-  if page == "📥 数据导入":
-      data_import_page()
-  elif page == "🔍 映射查询":
-      mapping_query_page()
-  elif page == "📊 数据统计":
-      data_statistics_page()
-  elif page == "📋 全部数据":
-      all_data_view_page()
-
-# ========== 程序入口 ==========
-
-if __name__ == "__main__":
-    main()
+  if not all([financial_data, physical_data, mapping_data]):
+      st.warning("⚠️ 请先导入所有必要的数据")
+      return
+  
+  # 基础统计
+  col1, col2, col3 = st.columns(3)
+  
+  with col1:
+      st.metric("财务系统资产数", len(financial_data))
+  with col2:
+      st.metric("实物台账资产数", len(physical_data))
+  with col3:
+      st.metric("已建立映射关系数", len(mapping_data))
+  
+  # 匹配率分析
+  financial_mapped = set(m.get("财务系统编号") for m in mapping_data if m.get("财务系统编号"))
+  physical_mapped = set(m.get("实物台账编号") for m in mapping_data if m.get("实物台账编号"))
+  
+  financial_match_rate = len(financial_mapped) / len(financial_data) * 100 if financial_data else 0
+  physical_match_rate = len(physical_mapped) / len(physical_data) * 100 if physical_data else 0
+  
+  st.subheader("🔗 匹配率分析")
+  col1, col2 = st.columns(2)
+  
+  with col1:
+      st.metric("财务系统匹配率", f"{financial_match_rate:.1f}%")
+      st.progress(financial_match_rate / 100)
+  
+  with col2:
+      st.metric("实物台账匹配率", f"{physical_match_rate:.1f}%")
+      st.progress(physical_match_rate / 100)
+  
+  # 未匹配资产统计
+  st.subheader("⚠️ 未匹配资产统计")
+  
+  unmatched_financial = len(financial_data) - len(financial_mapped)
+  unmatched_physical = len(physical_data) - len(physical_mapped)
+  
+  col1, col2 = st.columns(2)
+  with col1:
+      st.metric("未匹配财务资产", unmatched_financial)
+      if unmatched_financial > 0:
+          with st.expander("查看未匹配财务资产"):
+              unmatched_list = [f for f in financial_data if f.get("财务系统编号") not in financial_mapped]
+              df = pd.DataFrame(unmatched_list)
+              if not df.empty:
+                  st.dataframe(df[['财务系统编号', '资产名称', '资产价值', '部门名称']].head(10))
+  
+  with col2:
+      st.metric("未匹配实物资产", unmatched_physical)
+      if unmatched_physical > 0:
+          with st.expander("查看未匹配实物资产"):
+              unmatched_list = [p for p in physical_data if p.get("固定资产编号") not in physical_mapped]
+              df = pd.DataFrame(unmatched_list)
+              if not df.empty:
+                  st.dataframe(df[['固定资产编号', '固定资产名称', '资产价值', '存放部门']].head(10))
+  
+  # 价值差异统计
+  st.subheader("💰 价值差异统计")
+  
+  # 创建索引
+  financial_index = create_data_index(financial_data, "财务系统编号")
+  physical_index = create_data_index(physical_data, "固定资产编号")
+  f_to_p_mapping, _ = create_mapping_index(mapping_data)
+  
