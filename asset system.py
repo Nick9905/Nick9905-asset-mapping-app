@@ -569,3 +569,296 @@ def data_statistics_page():
   physical_index = create_data_index(physical_data, "固定资产编号")
   f_to_p_mapping, _ = create_mapping_index(mapping_data)
   
+  value_differences = []
+  for financial_code, physical_code in f_to_p_mapping.items():
+      financial_record = financial_index.get(financial_code)
+      physical_record = physical_index.get(physical_code)
+      
+      if financial_record and physical_record:
+          diff = financial_record.get("资产价值", 0) - physical_record.get("资产价值", 0)
+          if abs(diff) > 0.01:
+              value_differences.append({
+                    "财务系统编号": financial_code,
+                    "实物台账编号": physical_code,
+                    "财务资产名称": financial_record.get("资产名称", ""),
+                    "实物资产名称": physical_record.get("固定资产名称", ""),
+                    "财务价值": financial_record.get("资产价值", 0),
+                    "实物价值": physical_record.get("资产价值", 0),
+                    "差异金额": diff
+                })
+    
+    if value_differences:
+        total_diff = sum(abs(d["差异金额"]) for d in value_differences)
+        avg_diff = total_diff / len(value_differences)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("差异项数", len(value_differences))
+        with col2:
+            st.metric("差异总额", f"¥{total_diff:,.2f}")
+        with col3:
+            st.metric("平均差异", f"¥{avg_diff:,.2f}")
+        
+        # 显示差异明细
+        with st.expander("查看价值差异明细"):
+            df_diff = pd.DataFrame(value_differences)
+            df_diff = df_diff.sort_values(by="差异金额", key=abs, ascending=False)
+            st.dataframe(df_diff.head(20), use_container_width=True)
+    else:
+        st.success("✅ 所有已匹配资产的价值完全一致")
+
+# ========== 全部数据查看页面 ==========
+
+def all_data_view_page():
+    """查看全部对应关系页面"""
+    st.header("📋 全部资产对应关系")
+    
+    # 加载数据
+    with st.spinner("加载数据中..."):
+        financial_data = load_data(FINANCIAL_DATA_FILE)
+        physical_data = load_data(PHYSICAL_DATA_FILE)
+        mapping_data = load_data(MAPPING_DATA_FILE)
+    
+    if not all([financial_data, physical_data, mapping_data]):
+        st.warning("⚠️ 请先导入所有必要的数据")
+        return
+    
+    # 创建索引
+    financial_index = create_data_index(financial_data, "财务系统编号")
+    physical_index = create_data_index(physical_data, "固定资产编号")
+    f_to_p_mapping, p_to_f_mapping = create_mapping_index(mapping_data)
+    
+    # 选择查看模式
+    view_mode = st.selectbox("选择查看模式", ["对应关系汇总", "财务系统明细", "实物台账明细", "未匹配资产"])
+    
+    if view_mode == "对应关系汇总":
+        st.subheader("🔗 完整对应关系汇总")
+        
+        # 构建汇总数据
+        mapping_summary = []
+        for financial_code, physical_code in f_to_p_mapping.items():
+            financial_record = financial_index.get(financial_code)
+            physical_record = physical_index.get(physical_code)
+            
+            if financial_record and physical_record:
+                mapping_summary.append({
+                    "财务系统编号": financial_code,
+                    "财务资产名称": financial_record.get("资产名称", ""),
+                    "财务资产价值": financial_record.get("资产价值", 0),
+                    "财务部门": financial_record.get("部门名称", ""),
+                    "实物台账编号": physical_code,
+                    "实物资产名称": physical_record.get("固定资产名称", ""),
+                    "实物资产价值": physical_record.get("资产价值", 0),
+                    "实物部门": physical_record.get("存放部门", ""),
+                    "价值差异": financial_record.get("资产价值", 0) - physical_record.get("资产价值", 0)
+                })
+        
+        if mapping_summary:
+            df = pd.DataFrame(mapping_summary)
+            
+            # 添加筛选功能
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                dept_filter = st.selectbox("按部门筛选", ["全部"] + list(set(df["财务部门"].unique()) | set(df["实物部门"].unique())))
+            with col2:
+                diff_filter = st.selectbox("按差异筛选", ["全部", "有差异", "无差异"])
+            with col3:
+                search_term = st.text_input("搜索资产名称")
+            
+            # 应用筛选
+            filtered_df = df.copy()
+            
+            if dept_filter != "全部":
+                filtered_df = filtered_df[(filtered_df["财务部门"] == dept_filter) | (filtered_df["实物部门"] == dept_filter)]
+            
+            if diff_filter == "有差异":
+                filtered_df = filtered_df[filtered_df["价值差异"].abs() > 0.01]
+            elif diff_filter == "无差异":
+                filtered_df = filtered_df[filtered_df["价值差异"].abs() <= 0.01]
+            
+            if search_term:
+                filtered_df = filtered_df[
+                    filtered_df["财务资产名称"].str.contains(search_term, case=False, na=False) |
+                    filtered_df["实物资产名称"].str.contains(search_term, case=False, na=False)
+                ]
+            
+            st.info(f"共 {len(filtered_df)} 条记录")
+            st.dataframe(filtered_df, use_container_width=True)
+            
+            # 导出功能
+            if st.button("📥 导出为Excel"):
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    filtered_df.to_excel(writer, sheet_name='对应关系汇总', index=False)
+                output.seek(0)
+                st.download_button(
+                    label="下载Excel文件",
+                    data=output,
+                    file_name=f"资产对应关系汇总_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+    
+    elif view_mode == "财务系统明细":
+        st.subheader("📊 财务系统资产明细")
+        
+        df = pd.DataFrame(financial_data)
+        
+        # 添加匹配状态列
+        df["匹配状态"] = df["财务系统编号"].apply(lambda x: "已匹配" if x in f_to_p_mapping else "未匹配")
+        
+        # 筛选功能
+        col1, col2 = st.columns(2)
+        with col1:
+            match_filter = st.selectbox("匹配状态", ["全部", "已匹配", "未匹配"])
+        with col2:
+            search_term = st.text_input("搜索资产", key="financial_search")
+        
+        filtered_df = df.copy()
+        
+        if match_filter != "全部":
+            filtered_df = filtered_df[filtered_df["匹配状态"] == match_filter]
+        
+        if search_term:
+            filtered_df = filtered_df[
+                filtered_df["资产名称"].str.contains(search_term, case=False, na=False) |
+                filtered_df["财务系统编号"].str.contains(search_term, case=False, na=False)
+            ]
+        
+        st.info(f"共 {len(filtered_df)} 条记录")
+        display_columns = ["财务系统编号", "资产名称", "资产分类", "资产价值", "部门名称", "保管人", "匹配状态"]
+        st.dataframe(filtered_df[display_columns], use_container_width=True)
+    
+    elif view_mode == "实物台账明细":
+        st.subheader("📋 实物台账资产明细")
+        
+        df = pd.DataFrame(physical_data)
+        
+        # 添加匹配状态列
+        df["匹配状态"] = df["固定资产编号"].apply(lambda x: "已匹配" if x in p_to_f_mapping else "未匹配")
+        
+        # 筛选功能
+        col1, col2 = st.columns(2)
+        with col1:
+            match_filter = st.selectbox("匹配状态", ["全部", "已匹配", "未匹配"], key="physical_match")
+        with col2:
+            search_term = st.text_input("搜索资产", key="physical_search")
+        
+        filtered_df = df.copy()
+        
+        if match_filter != "全部":
+            filtered_df = filtered_df[filtered_df["匹配状态"] == match_filter]
+        
+        if search_term:
+            filtered_df = filtered_df[
+                filtered_df["固定资产名称"].str.contains(search_term, case=False, na=False) |
+                filtered_df["固定资产编号"].str.contains(search_term, case=False, na=False)
+            ]
+        
+        st.info(f"共 {len(filtered_df)} 条记录")
+        display_columns = ["固定资产编号", "固定资产名称", "固定资产类型", "资产价值", "存放部门", "保管人", "使用状态", "匹配状态"]
+        st.dataframe(filtered_df[display_columns], use_container_width=True)
+    
+    else:  # 未匹配资产
+        st.subheader("⚠️ 未匹配资产列表")
+        
+        tab1, tab2 = st.tabs(["未匹配财务资产", "未匹配实物资产"])
+        
+        with tab1:
+            unmatched_financial = [f for f in financial_data if f.get("财务系统编号") not in f_to_p_mapping]
+            if unmatched_financial:
+                df = pd.DataFrame(unmatched_financial)
+                st.info(f"共 {len(df)} 条未匹配财务资产")
+                display_columns = ["财务系统编号", "资产名称", "资产分类", "资产价值", "部门名称", "保管人"]
+                st.dataframe(df[display_columns], use_container_width=True)
+                
+                # 导出未匹配财务资产
+                if st.button("📥 导出未匹配财务资产", key="export_unmatched_financial"):
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df[display_columns].to_excel(writer, sheet_name='未匹配财务资产', index=False)
+                    output.seek(0)
+                    st.download_button(
+                        label="下载Excel文件",
+                        data=output,
+                        file_name=f"未匹配财务资产_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_unmatched_financial"
+                    )
+            else:
+                st.success("✅ 所有财务资产都已匹配")
+        
+        with tab2:
+            unmatched_physical = [p for p in physical_data if p.get("固定资产编号") not in p_to_f_mapping]
+            if unmatched_physical:
+                df = pd.DataFrame(unmatched_physical)
+                st.info(f"共 {len(df)} 条未匹配实物资产")
+                display_columns = ["固定资产编号", "固定资产名称", "固定资产类型", "资产价值", "存放部门", "保管人", "使用状态"]
+                st.dataframe(df[display_columns], use_container_width=True)
+                
+                # 导出未匹配实物资产
+                if st.button("📥 导出未匹配实物资产", key="export_unmatched_physical"):
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df[display_columns].to_excel(writer, sheet_name='未匹配实物资产', index=False)
+                    output.seek(0)
+                    st.download_button(
+                        label="下载Excel文件",
+                        data=output,
+                        file_name=f"未匹配实物资产_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_unmatched_physical"
+                    )
+            else:
+                st.success("✅ 所有实物资产都已匹配")
+
+# ========== 主函数 ==========
+
+def main():
+    """主函数"""
+    st.title("🔗 资产映射关系查询系统")
+    
+    # 侧边栏导航
+    with st.sidebar:
+        st.header("📋 系统导航")
+        page = st.selectbox(
+            "选择功能页面",
+            ["📥 数据导入", "🔍 映射查询", "📊 数据统计", "📋 全部数据"],
+            key="page_selector"
+        )
+        
+        st.markdown("---")
+        st.markdown("### 📝 使用说明")
+        st.markdown("""
+        1. **数据导入**：上传Excel文件导入数据
+        2. **映射查询**：查询资产对应关系
+        3. **数据统计**：查看统计分析结果
+        4. **全部数据**：浏览所有数据记录
+        """)
+        
+        # 显示数据状态
+        st.markdown("---")
+        st.markdown("### 📊 数据状态")
+        financial_count = len(load_data(FINANCIAL_DATA_FILE))
+        physical_count = len(load_data(PHYSICAL_DATA_FILE))
+        mapping_count = len(load_data(MAPPING_DATA_FILE))
+        
+        st.info(f"""
+        - 财务资产：{financial_count} 条
+        - 实物资产：{physical_count} 条
+        - 映射关系：{mapping_count} 条
+        """)
+    
+    # 根据选择显示对应页面
+    if page == "📥 数据导入":
+        data_import_page()
+    elif page == "🔍 映射查询":
+        mapping_query_page()
+    elif page == "📊 数据统计":
+        data_statistics_page()
+    elif page == "📋 全部数据":
+        all_data_view_page()
+
+# ========== 程序入口 ==========
+
+if __name__ == "__main__":
+    main()
