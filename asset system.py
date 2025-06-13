@@ -4169,42 +4169,42 @@ def all_data_view_page():
                             st.metric("未匹配资产总价值", f"¥{total_value:,.2f}")
                         except Exception as e:
                             st.metric("未匹配资产总价值", "计算错误")
-
+                    
                     with col2:
                         match_rate = ((len(financial_data) - len(unmatched_financial)) / len(
                             financial_data) * 100) if financial_data else 0
                         st.metric("财务资产匹配率", f"{match_rate:.1f}%")
-
+                    
                     with col3:
                         # 计算累计折旧总额 - 财务系统，使用"累计折旧"字段
                         try:
                             total_depreciation = 0.0
                             valid_depreciation_count = 0
                             zero_depreciation_count = 0
-
+                    
                             for record in unmatched_financial:
                                 if isinstance(record, dict):
                                     # 直接使用"累计折旧"字段
                                     depreciation_value = safe_get_value(record, "累计折旧", 0)
-
+                    
                                     if depreciation_value > 0:
                                         total_depreciation += depreciation_value
                                         valid_depreciation_count += 1
                                     elif depreciation_value == 0:
                                         zero_depreciation_count += 1
-
+                    
                             st.metric("未匹配累计折旧总额", f"¥{total_depreciation:,.2f}")
-
+                    
                             # 显示详细统计
                             if valid_depreciation_count > 0:
                                 st.caption(f"✅ 有折旧: {valid_depreciation_count}条")
                             if zero_depreciation_count > 0:
                                 st.caption(f"⚪ 零折旧: {zero_depreciation_count}条")
-
+                    
                         except Exception as e:
                             st.metric("未匹配累计折旧总额", "计算错误")
                             st.error(f"计算错误: {str(e)}")
-
+                    
                     with col4:
                         # 计算资产净值总计 - 财务系统，使用"资产净额"字段
                         try:
