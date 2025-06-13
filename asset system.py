@@ -498,7 +498,15 @@ def auto_detect_and_convert_numeric_fields(data):
 def data_import_page():
     """数据导入页面 - 增加删除数据功能"""
     st.header("📥 数据导入管理")
-
+     # 加载数据
+    current_financial = load_data_enhanced(FINANCIAL_DATA_FILE)
+    current_physical = load_data_enhanced(PHYSICAL_DATA_FILE)  
+    current_mapping = load_data_enhanced(MAPPING_DATA_FILE)
+    
+    # 赋值给显示变量
+    financial_data = current_financial
+    physical_data = current_physical
+    mapping_data = current_mapping    
     st.info("💡 **映射规则说明**：财务系统的'资产编号+序号' ↔ 实物台账的'固定资产编码'（多对多关系）")
 
     # 创建四个标签页
