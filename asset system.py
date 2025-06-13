@@ -1604,14 +1604,14 @@ def data_import_page():
             physical_data = load_data(PHYSICAL_DATA_FILE)
             st.metric(
                 label="📦 实物台账数据",
-                value=f"{len(physical_data)} 条",
+                value=f"{len(current_physical)} 条",
                 delta=f"总价值: {sum(safe_convert_to_float(record.get('资产价值', 0)) for record in physical_data):,.2f}" if physical_data else "无数据"
             )
 
-        with col3:
+        with col3:  
             
             st.metric(
-                label="🔗 映射关系数据",
+                label="🔗 映射数据",
                 value=f"{len(current_mapping)} 条",
                 delta="映射关系" if mapping_data else "无数据"
             )
