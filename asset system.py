@@ -4162,7 +4162,7 @@ def all_data_view_page():
                         # 安全计算未匹配财务资产总价值
                         try:
                             total_value = 0.0
-                            for record in unmatched_financial:  # ✅ 修复：使用正确的变量
+                            for record in unmatched_financial:
                                 if isinstance(record, dict):
                                     # 使用财务系统的价值字段
                                     value = safe_get_value(record, "资产价值", 0)
