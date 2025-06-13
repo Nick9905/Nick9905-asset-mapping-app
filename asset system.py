@@ -198,40 +198,211 @@ def create_mapping_index(mapping_data):
 
 
 def safe_get_value(record, key, default=0):
-    """安全获取数值，处理可能的类型转换问题"""
+    """安全获取数值，处理可能的类型转换问题 - 通用增强版"""
     try:
         # 根据实际Excel字段，尝试多个可能的字段名
         value = None
-        if key == "资产价值":
+
+        # 🔧 新增：资产名称字段处理
+        if key == "资产名称":
+            # 财务系统资产名称字段
+            for field in ["资产名称", "固定资产名称", "资产名", "名称", "设备名称"]:
+                if field in record and record[field] is not None:
+                    return str(record[field]).strip()
+            return str(default)
+
+        elif key == "固定资产名称":
+            # 实物系统资产名称字段
+            for field in ["固定资产名称", "资产名称", "设备名称", "名称", "资产名"]:
+                if field in record and record[field] is not None:
+                    return str(record[field]).strip()
+            return str(default)
+
+        # 特定字段的映射处理
+        elif key == "资产价值":
             # 财务系统可能的字段名
-            for field in ["资产价值", "账面价值", "资产净额", "固定资产原值"]:
+            for field in ["资产价值", "账面价值", "资产净额", "固定资产原值", "原价", "原值"]:
                 if field in record and record[field] is not None:
                     value = record[field]
                     break
         elif key == "固定资产原值":
             # 实物台账可能的字段名
-            for field in ["固定资产原值", "资产价值", "原值"]:
+            for field in ["固定资产原值", "资产价值", "原值", "资产原值", "原价", "购置价值"]:
+                if field in record and record[field] is not None:
+                    value = record[field]
+                    break
+        elif key == "累计折旧":
+            # 累计折旧字段的可能名称（财务和实物通用）
+            for field in ["累计折旧", "累计摊销", "折旧累计", "已计提折旧", "折旧金额", "累计折旧额", "折旧合计"]:
+                if field in record and record[field] is not None:
+                    value = record[field]
+                    break
+            # 如果还没找到，尝试模糊匹配
+            if value is None:
+                for field_name, field_value in record.items():
+                    if field_value is not None and ("折旧" in str(field_name) or "摊销" in str(field_name)):
+                        # 排除明显不是累计折旧的字段
+                        if not any(
+                                exclude in str(field_name) for exclude in ["率", "年限", "方法", "政策", "说明"]):
+                            value = field_value
+                            break
+        elif key == "净额" or key == "净值":
+            # 净值字段的可能名称（主要用于财务系统）
+            for field in ["净额", "净值", "账面净值", "资产净值", "固定资产净值", "账面价值", "净资产"]:
                 if field in record and record[field] is not None:
                     value = record[field]
                     break
         else:
+            # 直接获取字段值
             value = record.get(key, default)
 
+        # 调用通用数值转换函数
+        return convert_to_number(value, default)
+
+    except Exception:
+        # 如果出现任何异常，返回默认值
+        return default
+
+
+def convert_to_number(value, default=0):
+    """通用数值转换函数，处理各种可能的数值格式"""
+    try:
+        # 如果没有找到值，返回默认值
         if value is None or value == "":
             return default
 
-        if isinstance(value, (int, float)):
-            return value
-        elif isinstance(value, str):
-            # 尝试转换字符串为数字
-            value = value.replace(',', '').replace('¥', '').replace('￥', '').strip()
-            if value == '' or value == '-' or value == 'nan' or value.lower() == 'null':
-                return default
-            return float(value)
-        else:
+        # 处理pandas的NaN值
+        if pd.isna(value):
             return default
-    except:
+
+        # 如果已经是数字类型
+        if isinstance(value, (int, float)):
+            return float(value) if not pd.isna(value) else default
+
+        # 如果是字符串，进行清理和转换
+        if isinstance(value, str):
+            # 移除常见的非数字字符
+            cleaned_value = value.strip()
+
+            # 处理常见的文本情况
+            if cleaned_value.lower() in ['', '-', 'nan', 'null', 'none', '无', '空', 'n/a', '#n/a', '#value!',
+                                         '#div/0!']:
+                return default
+
+            # 移除货币符号和格式字符
+            cleaned_value = cleaned_value.replace(',', '').replace('¥', '').replace('￥', '').replace('$', '').replace(
+                '€', '')
+            cleaned_value = cleaned_value.replace('，', '').replace(' ', '').replace('\t', '').replace('\n', '')
+            cleaned_value = cleaned_value.replace('元', '').replace('万元', '0000').replace('千元', '000')
+
+            # 处理括号表示负数的情况 (1,000.00) -> -1000.00
+            if cleaned_value.startswith('(') and cleaned_value.endswith(')'):
+                cleaned_value = '-' + cleaned_value[1:-1]
+
+            # 处理百分号
+            if cleaned_value.endswith('%'):
+                try:
+                    return float(cleaned_value[:-1]) / 100
+                except ValueError:
+                    pass
+
+            # 尝试转换为浮点数
+            try:
+                return float(cleaned_value)
+            except ValueError:
+                # 如果包含其他文字，尝试提取数字部分
+                import re
+                # 匹配数字（包括小数点和负号）
+                number_match = re.search(r'-?\d+(?:\.\d+)?', cleaned_value)
+                if number_match:
+                    return float(number_match.group())
+                else:
+                    return default
+
+        # 其他类型尝试直接转换
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+
+    except Exception:
+        # 如果出现任何异常，返回默认值
         return default
+
+
+def is_numeric_field(field_name, sample_values):
+    """判断字段是否为数值类型字段"""
+    # 明确的数值字段关键词
+    numeric_keywords = [
+        '价值', '金额', '原值', '净值', '净额', '折旧', '摊销',
+        '成本', '费用', '收入', '利润', '资产', '负债', '权益',
+        '数量', '单价', '总价', '合计', '小计', '余额', '结余',
+        '面积', '长度', '重量', '容量', '功率', '电压', '电流',
+        '年限', '月数', '天数', '比率', '率', '百分比', '%'
+    ]
+
+    # 检查字段名是否包含数值关键词
+    field_name_lower = field_name.lower()
+    for keyword in numeric_keywords:
+        if keyword in field_name_lower:
+            return True
+
+    # 检查样本值是否主要为数值类型
+    if not sample_values:
+        return False
+
+    numeric_count = 0
+    total_count = len(sample_values)
+
+    for value in sample_values[:min(10, total_count)]:  # 检查前10个样本
+        if value is None or value == "":
+            continue
+
+        # 尝试转换为数值
+        converted = convert_to_number(value, None)
+        if converted is not None:
+            numeric_count += 1
+
+    # 如果超过60%的样本可以转换为数值，则认为是数值字段
+    return numeric_count / max(1, total_count) > 0.6
+
+
+def auto_detect_and_convert_numeric_fields(data):
+    """自动检测并转换数值字段"""
+    if not data:
+        return data
+
+    # 获取所有字段名
+    all_fields = set()
+    for record in data[:100]:  # 检查前100条记录以确定字段
+        all_fields.update(record.keys())
+
+    # 检测数值字段
+    numeric_fields = {}
+    for field in all_fields:
+        # 收集该字段的样本值
+        sample_values = []
+        for record in data[:20]:  # 取前20条记录作为样本
+            if field in record:
+                sample_values.append(record[field])
+
+        if is_numeric_field(field, sample_values):
+            numeric_fields[field] = True
+
+    # 转换数值字段
+    converted_data = []
+    for record in data:
+        new_record = {}
+        for key, value in record.items():
+            if key in numeric_fields:
+                # 转换为数值
+                new_record[key] = convert_to_number(value, 0)
+            else:
+                # 保持原值
+                new_record[key] = value
+        converted_data.append(new_record)
+
+    return converted_data, numeric_fields
 
 
 # ========== 页面函数 ==========
@@ -660,16 +831,27 @@ def data_import_page():
                     st.metric("总记录数", len(df_current))
 
                 with col2:
-                    # ✅ 修复：使用固定资产原值字段计算总价值
+                    # ✅ 修复：使用固定资产原值字段计算总价值，支持核算筛选
                     if "固定资产原值" in df_current.columns:
                         try:
-                            # 原始计算
+                            # 🆕 新增：检查是否有核算字段
+                            has_accounting_field = "是否核算" in df_current.columns
+
+                            # 原始计算（支持核算筛选）
                             total_value_raw = 0.0
                             valid_count_raw = 0
                             error_count = 0
+                            non_accounting_count = 0  # 非核算资产数量
 
                             for _, row in df_current.iterrows():
                                 try:
+                                    # 🆕 检查是否核算
+                                    if has_accounting_field:
+                                        accounting_status = str(row.get("是否核算", "")).strip()
+                                        if accounting_status not in ["是", "Y", "y", "Yes", "YES", "1", "True", "true"]:
+                                            non_accounting_count += 1
+                                            continue  # 跳过非核算资产
+
                                     value = safe_convert_to_float(row.get("固定资产原值", 0))
                                     if value > 0:
                                         total_value_raw += value
@@ -680,6 +862,64 @@ def data_import_page():
                                         error_count += 1
                                 except:
                                     error_count += 1
+
+                            # 去重计算（支持核算筛选）
+                            df_deduped = df_current.drop_duplicates(subset=['固定资产编码'], keep='first')
+                            total_value_dedup = 0.0
+                            valid_count_dedup = 0
+                            non_accounting_dedup_count = 0
+
+                            for _, row in df_deduped.iterrows():
+                                try:
+                                    # 🆕 检查是否核算
+                                    if has_accounting_field:
+                                        accounting_status = str(row.get("是否核算", "")).strip()
+                                        if accounting_status not in ["是", "Y", "y", "Yes", "YES", "1", "True", "true"]:
+                                            non_accounting_dedup_count += 1
+                                            continue  # 跳过非核算资产
+
+                                    value = safe_convert_to_float(row.get("固定资产原值", 0))
+                                    if value > 0:
+                                        total_value_dedup += value
+                                        valid_count_dedup += 1
+                                except:
+                                    pass
+
+                            # 显示结果
+                            duplicate_count = len(df_current) - len(df_deduped)
+
+                            if duplicate_count > 0:
+                                st.metric("固定资产原值总计", f"¥{total_value_dedup:,.2f}")
+                                caption_text = f"去重后金额（删除{duplicate_count}条重复）"
+                                if has_accounting_field and non_accounting_dedup_count > 0:
+                                    caption_text += f" | 已排除{non_accounting_dedup_count}条非核算"
+                                st.caption(caption_text)
+                            else:
+                                st.metric("固定资产原值总计", f"¥{total_value_raw:,.2f}")
+                                caption_text = "无重复记录"
+                                if has_accounting_field and non_accounting_count > 0:
+                                    caption_text += f" | 已排除{non_accounting_count}条非核算"
+                                st.caption(caption_text)
+
+                            # 显示处理统计
+                            effective_valid_count = valid_count_dedup if duplicate_count > 0 else valid_count_raw
+                            effective_total_count = len(df_deduped) if duplicate_count > 0 else len(df_current)
+                            effective_non_accounting = non_accounting_dedup_count if duplicate_count > 0 else non_accounting_count
+
+                            if effective_valid_count > 0:
+                                success_rate = (effective_valid_count / (
+                                            effective_valid_count + effective_non_accounting + error_count)) * 100
+                                st.success(
+                                    f"✅ 成功处理 {effective_valid_count}/{effective_total_count} 条记录 ({success_rate:.1f}%)")
+
+                                if error_count > 0:
+                                    st.warning(f"⚠️ {error_count} 条记录的固定资产原值字段无法转换为数字")
+
+                                # 🆕 显示核算筛选统计
+                                if has_accounting_field and effective_non_accounting > 0:
+                                    st.info(f"📊 已排除 {effective_non_accounting} 条非核算资产")
+                            else:
+                                st.error("❌ 所有固定资产原值字段都无法转换为有效数字")
 
                             # 去重计算
                             df_deduped = df_current.drop_duplicates(subset=['固定资产编码'], keep='first')
@@ -1478,6 +1718,81 @@ def mapping_query_page():
             missing.append("映射关系数据")
         st.warning(f"⚠️ 请先导入：{', '.join(missing)}")
         return
+    # ⚙️ 字段映射配置
+    st.markdown("### ⚙️ 字段映射配置")
+
+    with st.expander("配置数据字段映射", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**财务系统字段配置**")
+
+            # 获取财务数据的所有字段
+            financial_fields = list(financial_data[0].keys()) if financial_data else []
+
+            financial_original_field = st.selectbox(
+                "原值字段",
+                financial_fields,
+                index=financial_fields.index("资产价值") if "资产价值" in financial_fields else 0,
+                key="fin_original"
+            )
+
+            financial_depreciation_field = st.selectbox(
+                "累计折旧字段",
+                financial_fields,
+                index=financial_fields.index("累计折旧") if "累计折旧" in financial_fields else 0,
+                key="fin_depreciation"
+            )
+
+            financial_net_field = st.selectbox(
+                "净值字段",
+                financial_fields,
+                index=financial_fields.index("净额") if "净额" in financial_fields else 0,
+                key="fin_net"
+            )
+
+        with col2:
+            st.markdown("**实物系统字段配置**")
+
+            # 获取实物数据的所有字段
+            physical_fields = list(physical_data[0].keys()) if physical_data else []
+
+            physical_original_field = st.selectbox(
+                "原值字段",
+                physical_fields,
+                index=physical_fields.index("固定资产原值") if "固定资产原值" in physical_fields else 0,
+                key="phy_original"
+            )
+
+            physical_depreciation_field = st.selectbox(
+                "累计折旧字段",
+                physical_fields,
+                index=physical_fields.index("累计折旧") if "累计折旧" in physical_fields else 0,
+                key="phy_depreciation"
+            )
+
+            # 实物系统净值字段（可选，如果没有则计算）
+            physical_net_field = st.selectbox(
+                "净值字段（可选）",
+                ["计算得出"] + physical_fields,
+                key="phy_net"
+            )
+
+    # 🔍 数据调试信息部分
+    st.markdown("### 🔍 数据字段调试信息")
+
+    with st.expander("查看数据字段详情", expanded=False):
+        if financial_data:
+            st.write("**财务系统数据示例（前3条）：**")
+            for i, record in enumerate(financial_data[:3]):
+                st.write(f"记录 {i + 1}:")
+                st.json(record)
+
+        if physical_data:
+            st.write("**实物系统数据示例（前3条）：**")
+            for i, record in enumerate(physical_data[:3]):
+                st.write(f"记录 {i + 1}:")
+                st.json(record)
     # 创建索引以提高查询效率
     financial_index = create_data_index(financial_data, "资产编号+序号")
     physical_index = create_data_index(physical_data, "固定资产编码")
@@ -2138,7 +2453,7 @@ def data_statistics_page():
     """数据统计页面"""
     st.header("📊 数据统计分析")
 
-    # 加载数据
+    # ========== 数据加载和验证 ==========
     with st.spinner("加载数据中..."):
         financial_data = load_data(FINANCIAL_DATA_FILE)
         physical_data = load_data(PHYSICAL_DATA_FILE)
@@ -2155,124 +2470,125 @@ def data_statistics_page():
         st.warning(f"⚠️ 请先导入：{', '.join(missing)}")
         return
 
-    # 创建索引
+    # ========== 创建数据索引 ==========
     financial_index = create_data_index(financial_data, "资产编号+序号")
     physical_index = create_data_index(physical_data, "固定资产编码")
     financial_to_physical_mapping, physical_to_financial_mapping = create_mapping_index(mapping_data)
 
-    # 基础统计
-    col1, col2, col3, col4 = st.columns(4)
+    # ========== 预计算统计数据 ==========
+    # 计算匹配数量
+    matched_financial = len(
+        [f for f in financial_data if str(f.get("资产编号+序号", "")).strip() in financial_to_physical_mapping])
+    matched_physical = len(
+        [p for p in physical_data if str(p.get("固定资产编码", "")).strip() in physical_to_financial_mapping])
 
-    with col1:
-        st.metric("财务资产总数", len(financial_data))
-
-    with col2:
-        deduped_count = st.session_state.get('physical_deduped_count', len(physical_data))
-        original_count = st.session_state.get('physical_original_count', len(physical_data))
-        duplicate_count = st.session_state.get('physical_duplicate_count', 0)
-
-        st.metric("实物资产总数", f"{deduped_count:,}")
-        if duplicate_count > 0:
-            st.caption(f"原始 {original_count:,} 条，去重 {duplicate_count} 条")
-        else:
-            st.caption("无重复记录")
-
-    with col3:
-        # 计算已匹配的财务资产数量
-        matched_financial = len([f for f in financial_data
-                                 if str(f.get("资产编号+序号", "")).strip() in financial_to_physical_mapping])
-        st.metric("已匹配财务资产", matched_financial)
-
-    with col4:
-        # 计算已匹配的实物资产数量
-        matched_physical = len([p for p in physical_data
-                                if str(p.get("固定资产编码", "")).strip() in physical_to_financial_mapping])
-        st.metric("已匹配实物资产", matched_physical)
-
-    # 匹配率统计
-    st.subheader("📈 匹配率统计")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        financial_match_rate = (matched_financial / len(financial_data) * 100) if financial_data else 0
-        st.metric("财务资产匹配率", f"{financial_match_rate:.1f}%")
-
-    with col2:
-        physical_match_rate = (matched_physical / len(physical_data) * 100) if physical_data else 0
-        st.metric("实物资产匹配率", f"{physical_match_rate:.1f}%")
-
-    # 价值统计
-    st.subheader("💰 价值统计")
-
-    # 计算总价值
+    # 计算价值
     financial_total_value = sum(safe_get_value(f, "资产价值") for f in financial_data)
 
-    # ✅ 修复：实物资产总价值计算 - 添加去重处理
-    # 先转换为DataFrame进行去重
+    # 处理实物资产价值计算（去重和核算筛选）
     physical_df = pd.DataFrame(physical_data)
     if len(physical_df) > 0 and "固定资产编码" in physical_df.columns:
-        # 按固定资产编码去重，保持第一条记录
-        physical_df_deduped = physical_df.drop_duplicates(subset=['固定资产编码'], keep='first')
-        physical_duplicate_count = len(physical_df) - len(physical_df_deduped)
+        if "是否核算" in physical_df.columns:
+            accounting_mask = physical_df["是否核算"].astype(str).str.strip().isin(
+                ["是", "Y", "y", "Yes", "YES", "1", "True", "true"])
+            physical_df_accounting = physical_df[accounting_mask]
+            non_accounting_count = len(physical_df) - len(physical_df_accounting)
+            physical_df_deduped = physical_df_accounting.drop_duplicates(subset=['固定资产编码'], keep='first')
+            physical_duplicate_count = len(physical_df_accounting) - len(physical_df_deduped)
+        else:
+            physical_df_deduped = physical_df.drop_duplicates(subset=['固定资产编码'], keep='first')
+            physical_duplicate_count = len(physical_df) - len(physical_df_deduped)
+            non_accounting_count = 0
 
-        # 基于去重后的数据计算总价值
         physical_total_value = sum(
-            safe_get_value(row.to_dict(), "资产价值") for _, row in physical_df_deduped.iterrows())
+            safe_get_value(row.to_dict(), "固定资产原值") for _, row in physical_df_deduped.iterrows())
 
-        # 记录去重信息供后续使用
+        # 保存统计信息
         st.session_state['physical_duplicate_count'] = physical_duplicate_count
         st.session_state['physical_deduped_count'] = len(physical_df_deduped)
         st.session_state['physical_original_count'] = len(physical_df)
     else:
-        # 如果没有编码字段或数据为空，使用原始计算
         physical_total_value = sum(safe_get_value(p, "资产价值") for p in physical_data)
+        physical_duplicate_count = 0
+        non_accounting_count = 0
         st.session_state['physical_duplicate_count'] = 0
         st.session_state['physical_deduped_count'] = len(physical_data)
         st.session_state['physical_original_count'] = len(physical_data)
 
-    col1, col2, col3 = st.columns(3)
+    # ========== 主要内容区域 ==========
+    tab_summary, tab_analysis, tab_charts = st.tabs(["📊 统计概览", "🔍 差异分析", "📈 可视化分析"])
 
-    with col1:
-        st.metric("财务资产总价值", f"¥{financial_total_value:,.2f}")
-
-    with col2:
-        st.metric("实物资产总价值", f"¥{physical_total_value:,.2f}")
-        # ✅ 添加去重说明
-        duplicate_count = st.session_state.get('physical_duplicate_count', 0)
-        if duplicate_count > 0:
-            st.caption(f"已去重 ({duplicate_count}条重复)")
-        else:
-            st.caption("无重复记录")
-
-    with col3:
-        total_diff = financial_total_value - physical_total_value
-        st.metric("总价值差异", f"¥{total_diff:,.2f}")
-    # 添加去重统计详情
-    duplicate_count = st.session_state.get('physical_duplicate_count', 0)
-    if duplicate_count > 0:
-        with st.expander("📋 实物资产去重统计详情"):
-            col_detail1, col_detail2, col_detail3 = st.columns(3)
-
-            with col_detail1:
-                original_count = st.session_state.get('physical_original_count', 0)
-                st.metric("原始记录数", f"{original_count:,}")
-
-            with col_detail2:
-                deduped_count = st.session_state.get('physical_deduped_count', 0)
-                st.metric("去重后记录数", f"{deduped_count:,}")
-
-            with col_detail3:
-                st.metric("重复记录数", f"{duplicate_count:,}")
-
-            st.info("💡 实物资产总价值已基于去重后数据计算，确保与明细页面数据一致")
-
-        # 🔍 价值差异详细分析（合并版）
-        st.subheader("🔍 价值差异详细分析")
-
-        # ========== 总价值差异概览 ==========
-        st.markdown("### 💰 总价值差异概览")
-
+    # ========== Tab 1: 统计概览 ==========
+    with tab_summary:
+        # 基础统计
+        st.subheader("📋 基础统计信息")
         col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric("财务资产总数", f"{len(financial_data):,}")
+            st.caption(f"已匹配: {matched_financial:,}")
+
+        with col2:
+            deduped_count = st.session_state.get('physical_deduped_count', len(physical_data))
+            original_count = st.session_state.get('physical_original_count', len(physical_data))
+            duplicate_count = st.session_state.get('physical_duplicate_count', 0)
+
+            st.metric("实物资产总数", f"{deduped_count:,}")
+            if duplicate_count > 0:
+                st.caption(f"原始: {original_count:,} | 去重: {duplicate_count}")
+            else:
+                st.caption(f"已匹配: {matched_physical:,}")
+
+        with col3:
+            st.metric("映射关系总数", f"{len(mapping_data):,}")
+
+        with col4:
+            overall_match_rate = (
+                        (matched_financial + matched_physical) / (len(financial_data) + len(physical_data)) * 100) if (
+                                                                                                                                  len(financial_data) + len(
+                                                                                                                              physical_data)) > 0 else 0
+            st.metric("整体匹配率", f"{overall_match_rate:.1f}%")
+
+        st.divider()
+
+        # 匹配率统计
+        st.subheader("🎯 匹配率统计")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            financial_match_rate = (matched_financial / len(financial_data) * 100) if financial_data else 0
+            st.metric("财务资产匹配率", f"{financial_match_rate:.1f}%")
+
+            progress_val = financial_match_rate / 100
+            st.progress(progress_val)
+
+            unmatched_financial = len(financial_data) - matched_financial
+            st.caption(f"未匹配: {unmatched_financial:,} 项")
+
+        with col2:
+            physical_match_rate = (matched_physical / len(physical_data) * 100) if physical_data else 0
+            st.metric("实物资产匹配率", f"{physical_match_rate:.1f}%")
+
+            progress_val = physical_match_rate / 100
+            st.progress(progress_val)
+
+            unmatched_physical = len(physical_data) - matched_physical
+            st.caption(f"未匹配: {unmatched_physical:,} 项")
+
+        st.divider()
+
+        # 价值统计
+        st.subheader("💰 价值统计")
+
+        # 数据处理说明
+        if non_accounting_count > 0 or physical_duplicate_count > 0:
+            with st.expander("ℹ️ 数据处理说明", expanded=False):
+                if non_accounting_count > 0:
+                    st.info(f"💡 已排除 {non_accounting_count:,} 条非核算资产")
+                if physical_duplicate_count > 0:
+                    st.info(f"💡 已去重 {physical_duplicate_count:,} 条重复记录")
+
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             st.metric("财务资产总价值", f"¥{financial_total_value:,.2f}")
@@ -2282,81 +2598,537 @@ def data_statistics_page():
 
         with col3:
             total_diff = financial_total_value - physical_total_value
-            st.metric("总价值差异", f"¥{total_diff:,.2f}")
-            if total_diff > 0:
-                st.caption("财务 > 实物")
-            elif total_diff < 0:
-                st.caption("实物 > 财务")
+            diff_color = "normal"
+            if abs(total_diff) > 100000:
+                diff_color = "inverse"
+
+            st.metric("总价值差异", f"¥{total_diff:,.2f}", delta_color=diff_color)
+
+            if abs(total_diff) > 100000:
+                st.caption("🔴 差异较大，需要关注")
+            elif abs(total_diff) > 10000:
+                st.caption("🟡 存在差异")
             else:
-                st.caption("价值相等")
+                st.caption("🟢 差异较小")
 
-        with col4:
-            if (financial_total_value + physical_total_value) > 0:
-                total_diff_rate = (abs(total_diff) / (financial_total_value + physical_total_value)) * 100
-                st.metric("总差异率", f"{total_diff_rate:.2f}%")
+    # ========== Tab 2: 差异分析 ==========
+    with tab_analysis:
+        st.subheader("🔍 价值差异详细分析")
+
+        # 数据验证
+        if not all([financial_data, physical_data, mapping_data]):
+            st.warning("⚠️ 缺少必要数据，无法进行差异分析")
+            return
+
+        # 计算差异数据
+        with st.spinner("正在计算差异数据..."):
+            # 创建匹配集合
+            matched_financial_codes = set()
+            matched_physical_codes = set()
+
+            # 遍历映射数据获取匹配的编码
+            for mapping_record in mapping_data:
+                financial_code = str(mapping_record.get("资产编号+序号", "")).strip()
+                physical_code = str(mapping_record.get("固定资产编码", "")).strip()
+
+                if financial_code and physical_code:
+                    if financial_code in financial_index and physical_code in physical_index:
+                        matched_financial_codes.add(financial_code)
+                        matched_physical_codes.add(physical_code)
+
+            # 分类资产数据
+            matched_financial = [f for f in financial_data
+                                 if str(f.get("资产编号+序号", "")).strip() in matched_financial_codes]
+            matched_physical = [p for p in physical_data
+                                if str(p.get("固定资产编码", "")).strip() in matched_physical_codes]
+
+            unmatched_financial = [f for f in financial_data
+                                   if str(f.get("资产编号+序号", "")).strip() not in matched_financial_codes]
+            unmatched_physical = [p for p in physical_data
+                                  if str(p.get("固定资产编码", "")).strip() not in matched_physical_codes]
+
+            # 计算汇总数据
+            def calculate_totals(data_list, is_financial=True):
+                if is_financial:
+                    original_key = "资产价值"
+                    depreciation_key = "累计折旧"
+                    net_key = "净额"
+                else:
+                    original_key = "固定资产原值"
+                    depreciation_key = "累计折旧"
+                    net_key = None
+
+                total_original = sum(safe_get_value(item, original_key, 0) for item in data_list)
+                total_depreciation = sum(safe_get_value(item, depreciation_key, 0) for item in data_list)
+
+                if is_financial:
+                    total_net = sum(safe_get_value(item, net_key, 0) for item in data_list)
+                    if total_net == 0:  # 如果净额为0，用原值-累计折旧计算
+                        total_net = max(0, total_original - total_depreciation)
+                else:
+                    total_net = max(0, total_original - total_depreciation)
+
+                return {
+                    'original': total_original,
+                    'depreciation': total_depreciation,
+                    'net': total_net,
+                    'count': len(data_list)
+                }
+
+            # 计算各类汇总
+            total_financial = calculate_totals(financial_data, True)
+            total_physical = calculate_totals(physical_data, False)
+            matched_financial_totals = calculate_totals(matched_financial, True)
+            matched_physical_totals = calculate_totals(matched_physical, False)
+            unmatched_financial_totals = calculate_totals(unmatched_financial, True)
+            unmatched_physical_totals = calculate_totals(unmatched_physical, False)
+
+        # ========== 1. 总体差异对比 ==========
+        with tab_analysis:
+            st.subheader("🔍 价值差异详细分析")
+
+            # 数据验证
+            if not all([financial_data, physical_data, mapping_data]):
+                st.warning("⚠️ 缺少必要数据，无法进行差异分析")
             else:
-                st.metric("总差异率", "0%")
+                # 计算差异数据
+                with st.spinner("正在计算差异数据..."):
+                    # 创建匹配集合
+                    matched_financial_codes = set()
+                    matched_physical_codes = set()
 
-        # ========== 数量统计概览 ==========
-        st.markdown("### 📊 数量统计概览")
+                    # 遍历映射数据获取匹配的编码
+                    for mapping_record in mapping_data:
+                        financial_code = str(mapping_record.get("资产编号+序号", "")).strip()
+                        physical_code = str(mapping_record.get("固定资产编码", "")).strip()
 
-        # 计算未匹配资产
-        unmatched_financial = [f for f in financial_data if
-                               str(f.get("资产编号+序号", "")).strip() not in financial_to_physical_mapping]
-        unmatched_physical = [p for p in physical_data if
-                              str(p.get("固定资产编码", "")).strip() not in physical_to_financial_mapping]
+                        if financial_code and physical_code:
+                            if financial_code in financial_index and physical_code in physical_index:
+                                matched_financial_codes.add(financial_code)
+                                matched_physical_codes.add(physical_code)
 
-        # 计算已匹配数量
-        matched_financial = len(financial_data) - len(unmatched_financial)
-        matched_physical = len(physical_data) - len(unmatched_physical)
+                    # 分类资产数据
+                    matched_financial = [f for f in financial_data
+                                         if str(f.get("资产编号+序号", "")).strip() in matched_financial_codes]
+                    matched_physical = [p for p in physical_data
+                                        if str(p.get("固定资产编码", "")).strip() in matched_physical_codes]
 
-        col1, col2, col3, col4 = st.columns(4)
+                    unmatched_financial = [f for f in financial_data
+                                           if str(f.get("资产编号+序号", "")).strip() not in matched_financial_codes]
+                    unmatched_physical = [p for p in physical_data
+                                          if str(p.get("固定资产编码", "")).strip() not in matched_physical_codes]
 
-        with col1:
-            st.metric("财务资产总数", len(financial_data))
-            st.caption(f"已匹配: {matched_financial} | 未匹配: {len(unmatched_financial)}")
+                    # 定义匹配数量变量
+                    matched_count = len(matched_financial)
 
-        with col2:
-            st.metric("实物资产总数", len(physical_data))
-            st.caption(f"已匹配: {matched_physical} | 未匹配: {len(unmatched_physical)}")
+                    # 计算汇总数据
+                    def calculate_totals(data_list, is_financial=True):
+                        if is_financial:
+                            original_key = "资产价值"
+                            depreciation_key = "累计折旧"
+                            net_key = "净额"
+                        else:
+                            original_key = "固定资产原值"
+                            depreciation_key = "累计折旧"
+                            net_key = None
 
-        with col3:
-            st.metric("映射关系总数", len(mapping_data))
+                        total_original = sum(safe_get_value(item, original_key, 0) for item in data_list)
+                        total_depreciation = sum(safe_get_value(item, depreciation_key, 0) for item in data_list)
 
-        with col4:
-            overall_match_rate = (
-                        (matched_financial + matched_physical) / (len(financial_data) + len(physical_data)) * 100) if (
-                                                                                                                                  len(financial_data) + len(
-                                                                                                                              physical_data)) > 0 else 0
-            st.metric("整体匹配率", f"{overall_match_rate:.1f}%")
+                        if is_financial:
+                            total_net = sum(safe_get_value(item, net_key, 0) for item in data_list)
+                            if total_net == 0:  # 如果净额为0，用原值-累计折旧计算
+                                total_net = max(0, total_original - total_depreciation)
+                        else:
+                            total_net = max(0, total_original - total_depreciation)
 
-        # ========== 可视化图表 ==========
-        st.markdown("### 📈 可视化分析")
+                        return {
+                            'original': total_original,
+                            'depreciation': total_depreciation,
+                            'net': total_net,
+                            'count': len(data_list)
+                        }
 
-        # 创建图表数据
-        chart_tab1, chart_tab2, chart_tab3 = st.tabs(["价值对比图", "匹配状态分布", "部门分析"])
+                    # 计算各类汇总
+                    total_financial = calculate_totals(financial_data, True)
+                    total_physical = calculate_totals(physical_data, False)
+                    matched_financial_totals = calculate_totals(matched_financial, True)
+                    matched_physical_totals = calculate_totals(matched_physical, False)
+                    unmatched_financial_totals = calculate_totals(unmatched_financial, True)
+                    unmatched_physical_totals = calculate_totals(unmatched_physical, False)
+
+                # ========== 1. 总体差异对比（横向展示） ==========
+                st.markdown("### 💰 总体差异对比")
+
+                # 创建总体对比表格
+                total_comparison_data = {
+                    "项目": ["资产原值", "累计折旧", "资产净额"],
+                    "财务系统": [
+                        f"¥{total_financial['original']:,.2f}",
+                        f"¥{total_financial['depreciation']:,.2f}",
+                        f"¥{total_financial['net']:,.2f}"
+                    ],
+                    "实物系统": [
+                        f"¥{total_physical['original']:,.2f}",
+                        f"¥{total_physical['depreciation']:,.2f}",
+                        f"¥{total_physical['net']:,.2f}"
+                    ],
+                    "差异金额": [
+                        f"¥{total_financial['original'] - total_physical['original']:,.2f}",
+                        f"¥{total_financial['depreciation'] - total_physical['depreciation']:,.2f}",
+                        f"¥{total_financial['net'] - total_physical['net']:,.2f}"
+                    ]
+                }
+
+                total_comparison_df = pd.DataFrame(total_comparison_data)
+                st.dataframe(total_comparison_df, use_container_width=True, hide_index=True)
+
+                # 总体差异状态
+                total_original_diff = total_financial['original'] - total_physical['original']
+                total_depreciation_diff = total_financial['depreciation'] - total_physical['depreciation']
+                total_net_diff = total_financial['net'] - total_physical['net']
+
+                def get_status_emoji(diff_value):
+                    if abs(diff_value) > 1000000:
+                        return "🔴 重大差异"
+                    elif abs(diff_value) > 100000:
+                        return "🟡 中等差异"
+                    elif abs(diff_value) > 1000:
+                        return "🟠 轻微差异"
+                    else:
+                        return "🟢 基本一致"
+
+                col_status1, col_status2, col_status3 = st.columns(3)
+                with col_status1:
+                    st.info(f"**原值差异状态**: {get_status_emoji(total_original_diff)}")
+                with col_status2:
+                    st.info(f"**折旧差异状态**: {get_status_emoji(total_depreciation_diff)}")
+                with col_status3:
+                    st.info(f"**净额差异状态**: {get_status_emoji(total_net_diff)}")
+
+                st.divider()
+
+                # ========== 2. 已匹配资产分析（横向展示） ==========
+                st.markdown("### 🎯 已匹配资产分析")
+
+                # 已匹配差异计算
+                matched_original_diff = matched_financial_totals['original'] - matched_physical_totals['original']
+                matched_depreciation_diff = matched_financial_totals['depreciation'] - matched_physical_totals[
+                    'depreciation']
+                matched_net_diff = matched_financial_totals['net'] - matched_physical_totals['net']
+
+                # 已匹配对比表格
+                matched_comparison_data = {
+                    "项目": ["资产原值", "累计折旧", "资产净额"],
+                    "财务系统": [
+                        f"¥{matched_financial_totals['original']:,.2f}",
+                        f"¥{matched_financial_totals['depreciation']:,.2f}",
+                        f"¥{matched_financial_totals['net']:,.2f}"
+                    ],
+                    "实物系统": [
+                        f"¥{matched_physical_totals['original']:,.2f}",
+                        f"¥{matched_physical_totals['depreciation']:,.2f}",
+                        f"¥{matched_physical_totals['net']:,.2f}"
+                    ],
+                    "差异金额": [
+                        f"¥{matched_original_diff:,.2f}",
+                        f"¥{matched_depreciation_diff:,.2f}",
+                        f"¥{matched_net_diff:,.2f}"
+                    ],
+                    "占总资产比例": [
+                        f"{(matched_financial_totals['original'] / total_financial['original'] * 100):.1f}%" if
+                        total_financial['original'] > 0 else "0%",
+                        f"{(matched_financial_totals['depreciation'] / total_financial['depreciation'] * 100):.1f}%" if
+                        total_financial['depreciation'] > 0 else "0%",
+                        f"{(matched_financial_totals['net'] / total_financial['net'] * 100):.1f}%" if total_financial[
+                                                                                                          'net'] > 0 else "0%"
+                    ]
+                }
+
+                matched_comparison_df = pd.DataFrame(matched_comparison_data)
+                st.dataframe(matched_comparison_df, use_container_width=True, hide_index=True)
+
+                # 已匹配资产基本信息
+                col_matched1, col_matched2, col_matched3 = st.columns(3)
+                with col_matched1:
+                    st.metric("已匹配资产数量", f"{matched_financial_totals['count']:,} 项")
+                with col_matched2:
+                    overall_match_rate = (matched_count / len(financial_data) * 100) if financial_data else 0
+                    st.metric("总体匹配率", f"{overall_match_rate:.1f}%")
+                with col_matched3:
+                    st.metric("已匹配资产占比",
+                              f"{(matched_financial_totals['original'] / total_financial['original'] * 100):.1f}%" if
+                              total_financial['original'] > 0 else "0%")
+
+                st.divider()
+
+                # ========== 3. 未匹配资产分析（横向展示） ==========
+                st.markdown("### ⚠️ 未匹配资产分析")
+
+                # 未匹配对比表格
+                unmatched_comparison_data = {
+                    "资产类型": ["未匹配财务资产", "未匹配实物资产"],
+                    "资产原值": [
+                        f"¥{unmatched_financial_totals['original']:,.2f}",
+                        f"¥{unmatched_physical_totals['original']:,.2f}"
+                    ],
+                    "累计折旧": [
+                        f"¥{unmatched_financial_totals['depreciation']:,.2f}",
+                        f"¥{unmatched_physical_totals['depreciation']:,.2f}"
+                    ],
+                    "资产净额": [
+                        f"¥{unmatched_financial_totals['net']:,.2f}",
+                        f"¥{unmatched_physical_totals['net']:,.2f}"
+                    ],
+                    "资产数量": [
+                        f"{unmatched_financial_totals['count']:,} 项",
+                        f"{unmatched_physical_totals['count']:,} 项"
+                    ],
+                    "占比": [
+                        f"{(unmatched_financial_totals['original'] / total_financial['original'] * 100):.1f}%" if
+                        total_financial['original'] > 0 else "0%",
+                        f"{(unmatched_physical_totals['original'] / total_physical['original'] * 100):.1f}%" if
+                        total_physical['original'] > 0 else "0%"
+                    ]
+                }
+
+                unmatched_comparison_df = pd.DataFrame(unmatched_comparison_data)
+                st.dataframe(unmatched_comparison_df, use_container_width=True, hide_index=True)
+
+                # 未匹配资产差异分析
+                unmatched_original_diff = unmatched_financial_totals['original'] - unmatched_physical_totals['original']
+                unmatched_depreciation_diff = unmatched_financial_totals['depreciation'] - unmatched_physical_totals[
+                    'depreciation']
+                unmatched_net_diff = unmatched_financial_totals['net'] - unmatched_physical_totals['net']
+
+                st.markdown("#### 📊 未匹配资产差异")
+                col_unmatched1, col_unmatched2, col_unmatched3 = st.columns(3)
+
+                with col_unmatched1:
+                    st.metric("原值差异", f"¥{unmatched_original_diff:,.2f}",
+                              help="财务未匹配 - 实物未匹配")
+                with col_unmatched2:
+                    st.metric("折旧差异", f"¥{unmatched_depreciation_diff:,.2f}",
+                              help="财务未匹配 - 实物未匹配")
+                with col_unmatched3:
+                    st.metric("净额差异", f"¥{unmatched_net_diff:,.2f}",
+                              help="财务未匹配 - 实物未匹配")
+
+                st.divider()
+
+                # ========== 4. 可视化图表 ==========
+                st.markdown("### 📊 差异可视化分析")
+
+                # 创建图表数据
+                chart_col1, chart_col2 = st.columns(2)
+
+                with chart_col1:
+                    st.markdown("#### 📈 匹配状态分布")
+
+                    # 准备匹配状态数据
+                    financial_match_data = pd.DataFrame({
+                        "状态": ["已匹配", "未匹配"],
+                        "数量": [matched_count, len(unmatched_financial)],
+                        "金额": [matched_financial_totals['original'], unmatched_financial_totals['original']]
+                    })
+
+                    physical_match_data = pd.DataFrame({
+                        "状态": ["已匹配", "未匹配"],
+                        "数量": [len(matched_physical), len(unmatched_physical)],
+                        "金额": [matched_physical_totals['original'], unmatched_physical_totals['original']]
+                    })
+
+                    # 尝试使用plotly绘图
+                    try:
+                        import plotly.express as px
+                        import plotly.graph_objects as go
+                        from plotly.subplots import make_subplots
+
+                        # 创建子图
+                        fig = make_subplots(
+                            rows=1, cols=2,
+                            subplot_titles=('财务资产匹配状态', '实物资产匹配状态'),
+                            specs=[[{"type": "pie"}, {"type": "pie"}]]
+                        )
+
+                        # 财务资产饼图
+                        fig.add_trace(
+                            go.Pie(
+                                labels=financial_match_data["状态"],
+                                values=financial_match_data["金额"],
+                                name="财务资产",
+                                marker_colors=['#2E8B57', '#DC143C']
+                            ),
+                            row=1, col=1
+                        )
+
+                        # 实物资产饼图
+                        fig.add_trace(
+                            go.Pie(
+                                labels=physical_match_data["状态"],
+                                values=physical_match_data["金额"],
+                                name="实物资产",
+                                marker_colors=['#4682B4', '#FF6347']
+                            ),
+                            row=1, col=2
+                        )
+
+                        fig.update_layout(height=400, showlegend=True)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    except ImportError:
+                        # 使用streamlit原生图表
+                        st.write("**财务资产匹配状态**")
+                        fin_chart_data = pd.DataFrame({
+                            '已匹配': [matched_financial_totals['original']],
+                            '未匹配': [unmatched_financial_totals['original']]
+                        })
+                        st.bar_chart(fin_chart_data)
+
+                        st.write("**实物资产匹配状态**")
+                        phy_chart_data = pd.DataFrame({
+                            '已匹配': [matched_physical_totals['original']],
+                            '未匹配': [unmatched_physical_totals['original']]
+                        })
+                        st.bar_chart(phy_chart_data)
+
+                with chart_col2:
+                    st.markdown("#### 📊 差异对比分析")
+
+                    # 准备差异对比数据
+                    diff_comparison_data = pd.DataFrame({
+                        "差异类型": ["资产原值", "累计折旧", "资产净额"],
+                        "总体差异": [total_original_diff, total_depreciation_diff, total_net_diff],
+                        "已匹配差异": [matched_original_diff, matched_depreciation_diff, matched_net_diff],
+                        "未匹配差异": [unmatched_original_diff, unmatched_depreciation_diff, unmatched_net_diff]
+                    })
+
+                    try:
+                        # 差异对比柱状图
+                        fig_diff = px.bar(
+                            diff_comparison_data,
+                            x="差异类型",
+                            y=["总体差异", "已匹配差异", "未匹配差异"],
+                            title="各类差异对比分析",
+                            barmode="group",
+                            color_discrete_map={
+                                "总体差异": "#FF6B6B",
+                                "已匹配差异": "#4ECDC4",
+                                "未匹配差异": "#45B7D1"
+                            }
+                        )
+                        fig_diff.update_layout(
+                            xaxis_title="差异类型",
+                            yaxis_title="差异金额（元）",
+                            height=400
+                        )
+                        st.plotly_chart(fig_diff, use_container_width=True)
+
+                    except ImportError:
+                        # 使用streamlit原生图表
+                        chart_data = diff_comparison_data.set_index("差异类型")[
+                            ["总体差异", "已匹配差异", "未匹配差异"]]
+                        st.bar_chart(chart_data)
+
+                # 关键指标汇总（横向展示）
+                st.markdown("#### 📊 关键指标汇总")
+
+                key_metrics_data = {
+                    "指标": ["总体匹配率", "总价值差异", "已匹配项目", "待处理项目", "匹配资产占比"],
+                    "数值": [
+                        f"{overall_match_rate:.1f}%",
+                        f"¥{abs(total_original_diff):,.0f}",
+                        f"{matched_count:,} 项",
+                        f"{unmatched_financial_totals['count'] + unmatched_physical_totals['count']:,} 项",
+                        f"{(matched_financial_totals['original'] / total_financial['original'] * 100):.1f}%" if
+                        total_financial['original'] > 0 else "0%"
+                    ]
+                }
+
+                key_metrics_df = pd.DataFrame(key_metrics_data)
+                st.dataframe(key_metrics_df, use_container_width=True, hide_index=True)
+
+                # 导出功能
+                st.divider()
+                if st.button("📥 导出差异分析报告", key="export_analysis"):
+                    # 创建导出数据
+                    export_data = []
+
+                    # 总体对比数据
+                    export_data.extend([
+                        {"分类": "总体对比", "项目": "财务资产原值", "金额": total_financial['original']},
+                        {"分类": "总体对比", "项目": "实物资产原值", "金额": total_physical['original']},
+                        {"分类": "总体对比", "项目": "原值差异", "金额": total_original_diff},
+                        {"分类": "总体对比", "项目": "财务累计折旧", "金额": total_financial['depreciation']},
+                        {"分类": "总体对比", "项目": "实物累计折旧", "金额": total_physical['depreciation']},
+                        {"分类": "总体对比", "项目": "折旧差异", "金额": total_depreciation_diff},
+                        {"分类": "总体对比", "项目": "财务资产净额", "金额": total_financial['net']},
+                        {"分类": "总体对比", "项目": "实物资产净额", "金额": total_physical['net']},
+                        {"分类": "总体对比", "项目": "净额差异", "金额": total_net_diff}
+                    ])
+
+                    # 已匹配资产数据
+                    export_data.extend([
+                        {"分类": "已匹配资产", "项目": "财务资产原值", "金额": matched_financial_totals['original']},
+                        {"分类": "已匹配资产", "项目": "实物资产原值", "金额": matched_physical_totals['original']},
+                        {"分类": "已匹配资产", "项目": "原值差异", "金额": matched_original_diff},
+                        {"分类": "已匹配资产", "项目": "财务累计折旧",
+                         "金额": matched_financial_totals['depreciation']},
+                        {"分类": "已匹配资产", "项目": "实物累计折旧", "金额": matched_physical_totals['depreciation']},
+                        {"分类": "已匹配资产", "项目": "折旧差异", "金额": matched_depreciation_diff},
+                        {"分类": "已匹配资产", "项目": "财务资产净额", "金额": matched_financial_totals['net']},
+                        {"分类": "已匹配资产", "项目": "实物资产净额", "金额": matched_physical_totals['net']},
+                        {"分类": "已匹配资产", "项目": "净额差异", "金额": matched_net_diff},
+                        {"分类": "已匹配资产", "项目": "匹配数量", "金额": matched_financial_totals['count']}
+                    ])
+
+                    # 未匹配资产数据
+                    export_data.extend([
+                        {"分类": "未匹配财务资产", "项目": "资产原值", "金额": unmatched_financial_totals['original']},
+                        {"分类": "未匹配财务资产", "项目": "累计折旧",
+                         "金额": unmatched_financial_totals['depreciation']},
+                        {"分类": "未匹配财务资产", "项目": "资产净额", "金额": unmatched_financial_totals['net']},
+                        {"分类": "未匹配财务资产", "项目": "数量", "金额": unmatched_financial_totals['count']},
+                        {"分类": "未匹配实物资产", "项目": "资产原值", "金额": unmatched_physical_totals['original']},
+                        {"分类": "未匹配实物资产", "项目": "累计折旧",
+                         "金额": unmatched_physical_totals['depreciation']},
+                        {"分类": "未匹配实物资产", "项目": "资产净额", "金额": unmatched_physical_totals['net']},
+                        {"分类": "未匹配实物资产", "项目": "数量", "金额": unmatched_physical_totals['count']}
+                    ])
+
+                    export_df = pd.DataFrame(export_data)
+                    csv = export_df.to_csv(index=False, encoding='utf-8-sig')
+
+                    st.download_button(
+                        label="💾 下载差异分析报告 CSV",
+                        data=csv,
+                        file_name=f"资产差异分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+
+                    st.success("✅ 报告已准备就绪，点击上方按钮下载")
+
+    # ========== Tab 3: 可视化分析 ==========
+    with tab_charts:
+        st.subheader("📈 可视化分析")
+
+        chart_tab1, chart_tab2, chart_tab3 = st.tabs(["💰 价值分布", "🎯 匹配状态", "🏢 部门分析"])
 
         with chart_tab1:
             # 价值对比图
             col_chart1, col_chart2 = st.columns(2)
 
             with col_chart1:
-                # 总价值对比饼图
-                value_comparison_data = {
-                    "系统": ["财务系统", "实物系统"],
-                    "价值": [financial_total_value, physical_total_value]
-                }
-
-                import plotly.express as px
-                import plotly.graph_objects as go
-
-                # 如果没有plotly，使用matplotlib
+                # 总价值对比
                 try:
+                    import plotly.express as px
                     fig_pie = px.pie(
                         values=[financial_total_value, physical_total_value],
                         names=["财务系统", "实物系统"],
-                        title="总价值分布对比"
+                        title="总价值分布对比",
+                        color_discrete_sequence=['#FF6B6B', '#4ECDC4']
                     )
+                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_pie, use_container_width=True)
                 except:
                     # 使用streamlit原生图表
@@ -2368,7 +3140,11 @@ def data_statistics_page():
 
             with col_chart2:
                 # 匹配vs未匹配价值对比
-                # 计算未匹配资产价值
+                unmatched_financial = [f for f in financial_data if
+                                       str(f.get("资产编号+序号", "")).strip() not in financial_to_physical_mapping]
+                unmatched_physical = [p for p in physical_data if
+                                      str(p.get("固定资产编码", "")).strip() not in physical_to_financial_mapping]
+
                 unmatched_financial_value = sum(safe_get_value(f, "资产价值") for f in unmatched_financial)
                 matched_financial_value = financial_total_value - unmatched_financial_value
 
@@ -2379,29 +3155,31 @@ def data_statistics_page():
                         unmatched_physical_df_deduped = unmatched_physical_df.drop_duplicates(
                             subset=['固定资产编码'], keep='first')
                         unmatched_physical_value = sum(
-                            safe_get_value(row.to_dict(), "资产价值")
+                            safe_get_value(row.to_dict(), "固定资产原值")
                             for _, row in unmatched_physical_df_deduped.iterrows())
                     else:
-                        unmatched_physical_value = sum(safe_get_value(p, "资产价值") for p in unmatched_physical)
+                        unmatched_physical_value = sum(safe_get_value(p, "固定资产原值") for p in unmatched_physical)
                 else:
                     unmatched_physical_value = 0
 
                 matched_physical_value = physical_total_value - unmatched_physical_value
 
-                match_status_data = pd.DataFrame({
-                    "状态": ["已匹配财务", "未匹配财务", "已匹配实物", "未匹配实物"],
-                    "价值": [matched_financial_value, unmatched_financial_value, matched_physical_value,
-                             unmatched_physical_value]
-                })
-
                 try:
+                    match_status_data = pd.DataFrame({
+                        "状态": ["已匹配财务", "未匹配财务", "已匹配实物", "未匹配实物"],
+                        "价值": [matched_financial_value, unmatched_financial_value,
+                                 matched_physical_value, unmatched_physical_value]
+                    })
+
                     fig_bar = px.bar(
                         match_status_data,
                         x="状态",
                         y="价值",
                         title="匹配状态价值分布",
-                        color="状态"
+                        color="状态",
+                        color_discrete_sequence=['#95E1D3', '#F38BA8', '#A8E6CF', '#FFB3BA']
                     )
+                    fig_bar.update_layout(xaxis_tickangle=-45)
                     st.plotly_chart(fig_bar, use_container_width=True)
                 except:
                     st.bar_chart(match_status_data.set_index("状态"))
@@ -2412,18 +3190,20 @@ def data_statistics_page():
 
             with col_dist1:
                 # 财务资产匹配状态
-                financial_match_data = pd.DataFrame({
-                    "状态": ["已匹配", "未匹配"],
-                    "数量": [matched_financial, len(unmatched_financial)]
-                })
-
                 try:
+                    financial_match_data = pd.DataFrame({
+                        "状态": ["已匹配", "未匹配"],
+                        "数量": [matched_financial, len(financial_data) - matched_financial]
+                    })
+
                     fig_financial = px.pie(
                         financial_match_data,
                         values="数量",
                         names="状态",
-                        title="财务资产匹配状态"
+                        title="财务资产匹配状态",
+                        color_discrete_sequence=['#A8E6CF', '#FFB3BA']
                     )
+                    fig_financial.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_financial, use_container_width=True)
                 except:
                     st.write("**财务资产匹配状态**")
@@ -2431,18 +3211,20 @@ def data_statistics_page():
 
             with col_dist2:
                 # 实物资产匹配状态
-                physical_match_data = pd.DataFrame({
-                    "状态": ["已匹配", "未匹配"],
-                    "数量": [matched_physical, len(unmatched_physical)]
-                })
-
                 try:
+                    physical_match_data = pd.DataFrame({
+                        "状态": ["已匹配", "未匹配"],
+                        "数量": [matched_physical, len(physical_data) - matched_physical]
+                    })
+
                     fig_physical = px.pie(
                         physical_match_data,
                         values="数量",
                         names="状态",
-                        title="实物资产匹配状态"
+                        title="实物资产匹配状态",
+                        color_discrete_sequence=['#95E1D3', '#F38BA8']
                     )
+                    fig_physical.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_physical, use_container_width=True)
                 except:
                     st.write("**实物资产匹配状态**")
@@ -2450,7 +3232,7 @@ def data_statistics_page():
 
         with chart_tab3:
             # 部门分析图表
-            # 计算部门统计（提前计算，供后续使用）
+            # 计算部门统计
             financial_dept_stats = {}
             for f in financial_data:
                 dept = f.get("部门名称", "未知部门")
@@ -2485,7 +3267,9 @@ def data_statistics_page():
                             dept_df,
                             x="部门",
                             y="总价值",
-                            title="各部门资产价值分布（前10）"
+                            title="各部门资产价值分布（前10）",
+                            color="总价值",
+                            color_continuous_scale="Viridis"
                         )
                         fig_dept_value.update_xaxes(tickangle=45)
                         st.plotly_chart(fig_dept_value, use_container_width=True)
@@ -2501,517 +3285,93 @@ def data_statistics_page():
                             y="匹配率",
                             size="总价值",
                             hover_data=["部门"],
-                            title="部门匹配率 vs 资产数量"
+                            title="部门匹配率 vs 资产数量",
+                            color="匹配率",
+                            color_continuous_scale="RdYlGn"
                         )
                         st.plotly_chart(fig_dept_match, use_container_width=True)
                     except:
                         st.write("**部门匹配率分析**")
                         st.dataframe(dept_df[["部门", "资产数量", "匹配率"]])
 
-        # ========== 详细差异分析 ==========
-        st.markdown("### 🔍 详细差异分析")
+                # 部门详细统计表
+                st.markdown("#### 📊 部门统计详情")
+                dept_detail_df = dept_df.copy()
+                dept_detail_df["总价值"] = dept_detail_df["总价值"].apply(lambda x: f"¥{x:,.2f}")
+                dept_detail_df["匹配率"] = dept_detail_df["匹配率"].apply(lambda x: f"{x:.1f}%")
 
-        # 构建价值差异数据
-        value_differences = []
+                st.dataframe(
+                    dept_detail_df[["部门", "资产数量", "总价值", "匹配率"]],
+                    use_container_width=True
+                )
 
-        # 直接遍历映射数据来计算差异
-        for mapping_record in mapping_data:
-            financial_code = str(mapping_record.get("资产编号+序号", "")).strip()
-            physical_code = str(mapping_record.get("固定资产编码", "")).strip()
+                # 部门匹配率分析
+                st.markdown("#### 🎯 部门匹配率分析")
 
-            if financial_code and physical_code:
-                financial_record = financial_index.get(financial_code)
-                physical_record = physical_index.get(physical_code)
+                high_match_depts = dept_df[dept_df["匹配率"] >= 80]
+                medium_match_depts = dept_df[(dept_df["匹配率"] >= 50) & (dept_df["匹配率"] < 80)]
+                low_match_depts = dept_df[dept_df["匹配率"] < 50]
 
-                if financial_record and physical_record:
-                    financial_value = safe_get_value(financial_record, "资产价值")
-                    physical_value = safe_get_value(physical_record, "资产价值")
-                    diff = financial_value - physical_value
+                match_analysis_col1, match_analysis_col2, match_analysis_col3 = st.columns(3)
 
-                    value_differences.append({
-                        "资产编号+序号": financial_code,
-                        "资产名称": financial_record.get("资产名称", ""),
-                        "财务价值": financial_value,
-                        "实物价值": physical_value,
-                        "差异": diff,
-                        "差异率": (diff / financial_value * 100) if financial_value != 0 else 0
-                    })
+                with match_analysis_col1:
+                    st.metric("高匹配率部门 (≥80%)", f"{len(high_match_depts)} 个")
+                    if len(high_match_depts) > 0:
+                        st.caption("✅ 匹配良好")
 
-        if value_differences:
-            # 差异统计
-            total_pairs = len(value_differences)
-            no_diff_count = len([d for d in value_differences if abs(d["差异"]) <= 0.01])
-            has_diff_count = total_pairs - no_diff_count
+                with match_analysis_col2:
+                    st.metric("中等匹配率部门 (50-80%)", f"{len(medium_match_depts)} 个")
+                    if len(medium_match_depts) > 0:
+                        st.caption("⚠️ 需要改进")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("匹配对数", total_pairs)
-            with col2:
-                st.metric("无差异对数", no_diff_count)
-            with col3:
-                st.metric("有差异对数", has_diff_count)
+                with match_analysis_col3:
+                    st.metric("低匹配率部门 (<50%)", f"{len(low_match_depts)} 个")
+                    if len(low_match_depts) > 0:
+                        st.caption("🔴 急需关注")
 
-            # 差异分布可视化
-            if has_diff_count > 0:
-                with st.expander("📊 差异分布分析", expanded=False):
+                # 显示需要关注的部门
+                if len(low_match_depts) > 0:
+                    with st.expander("🔍 低匹配率部门详情", expanded=False):
+                        low_match_display = low_match_depts[["部门", "资产数量", "匹配率"]].copy()
+                        low_match_display["匹配率"] = low_match_display["匹配率"].apply(lambda x: f"{x:.1f}%")
+                        st.dataframe(low_match_display, use_container_width=True)
+                        st.warning("💡 建议优先处理这些部门的资产匹配工作")
 
-                    # 创建差异区间
-                    diff_ranges = {
-                        "0-1000": 0,
-                        "1000-5000": 0,
-                        "5000-10000": 0,
-                        "10000-50000": 0,
-                        "50000+": 0
-                    }
-
-                    for d in value_differences:
-                        abs_diff = abs(d["差异"])
-                        if abs_diff <= 0.01:
-                            continue
-                        elif abs_diff <= 1000:
-                            diff_ranges["0-1000"] += 1
-                        elif abs_diff <= 5000:
-                            diff_ranges["1000-5000"] += 1
-                        elif abs_diff <= 10000:
-                            diff_ranges["5000-10000"] += 1
-                        elif abs_diff <= 50000:
-                            diff_ranges["10000-50000"] += 1
-                        else:
-                            diff_ranges["50000+"] += 1
-
-                    # 差异分布图表
-                    col_diff1, col_diff2 = st.columns(2)
-
-                    with col_diff1:
-                        # 差异区间分布
-                        diff_dist_data = pd.DataFrame({
-                            "差异区间": list(diff_ranges.keys()),
-                            "数量": list(diff_ranges.values())
-                        })
-                        diff_dist_data = diff_dist_data[diff_dist_data["数量"] > 0]
-
-                        if len(diff_dist_data) > 0:
-                            try:
-                                fig_diff_dist = px.bar(
-                                    diff_dist_data,
-                                    x="差异区间",
-                                    y="数量",
-                                    title="价值差异区间分布"
-                                )
-                                st.plotly_chart(fig_diff_dist, use_container_width=True)
-                            except:
-                                st.write("**差异区间分布**")
-                                for _, row in diff_dist_data.iterrows():
-                                    st.write(f"**{row['差异区间']}元**: {row['数量']} 项")
-
-                    with col_diff2:
-                        # 差异率分布
-                        diff_rates = [abs(d["差异率"]) for d in value_differences if abs(d["差异"]) > 0.01]
-                        if diff_rates:
-                            try:
-                                fig_diff_rate = px.histogram(
-                                    x=diff_rates,
-                                    nbins=20,
-                                    title="差异率分布直方图"
-                                )
-                                st.plotly_chart(fig_diff_rate, use_container_width=True)
-                            except:
-                                st.write("**差异率统计**")
-                                st.write(f"平均差异率: {sum(diff_rates) / len(diff_rates):.2f}%")
-                                st.write(f"最大差异率: {max(diff_rates):.2f}%")
-                                st.write(f"最小差异率: {min(diff_rates):.2f}%")
-
-                    # 显示最大差异的前10项
-                    st.subheader("🔝 差异最大的10项资产")
-                    top_diff = sorted(value_differences, key=lambda x: abs(x["差异"]), reverse=True)[:10]
-
-                    if top_diff:
-                        df_top_diff = pd.DataFrame(top_diff)
-                        # 格式化显示
-                        df_top_diff["财务价值"] = df_top_diff["财务价值"].apply(lambda x: f"¥{x:,.2f}")
-                        df_top_diff["实物价值"] = df_top_diff["实物价值"].apply(lambda x: f"¥{x:,.2f}")
-                        df_top_diff["差异"] = df_top_diff["差异"].apply(lambda x: f"¥{x:,.2f}")
-                        df_top_diff["差异率"] = df_top_diff["差异率"].apply(lambda x: f"{x:.2f}%")
-                        st.dataframe(df_top_diff, use_container_width=True)
-
-        # ========== 未匹配资产分析 ==========
-        st.markdown("### ⚠️ 未匹配资产分析")
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric("未匹配财务资产", f"{len(unmatched_financial)} 条")
-            st.caption(f"价值: ¥{unmatched_financial_value:,.2f}")
-
-        with col2:
-            unmatched_physical_duplicate_count = len(unmatched_physical) - len(
-                unmatched_physical_df_deduped) if unmatched_physical else 0
-            effective_unmatched_physical = len(unmatched_physical) - unmatched_physical_duplicate_count
-            st.metric("未匹配实物资产", f"{effective_unmatched_physical} 条")
-            st.caption(f"价值: ¥{unmatched_physical_value:,.2f}")
-            if unmatched_physical_duplicate_count > 0:
-                st.caption(f"(已去重 {unmatched_physical_duplicate_count} 条)")
-
-        with col3:
-            unmatched_value_diff = unmatched_financial_value - unmatched_physical_value
-            st.metric("未匹配价值差异", f"¥{unmatched_value_diff:,.2f}")
-            if unmatched_value_diff > 0:
-                st.caption("财务 > 实物")
-            elif unmatched_value_diff < 0:
-                st.caption("实物 > 财务")
             else:
-                st.caption("价值相等")
+                st.info("暂无部门数据可供分析")
+        # ========== 页面底部汇总信息 ==========
+    st.divider()
+    st.markdown("### 📋 数据统计汇总")
 
-        with col4:
-            total_unmatched_value = unmatched_financial_value + unmatched_physical_value
-            if total_unmatched_value > 0:
-                unmatched_impact_rate = (abs(unmatched_value_diff) / total_unmatched_value) * 100
-                st.metric("差异影响率", f"{unmatched_impact_rate:.1f}%")
-                st.caption("差异占未匹配总价值比例")
-            else:
-                st.metric("差异影响率", "0%")
-                st.caption("无未匹配资产")
+    # 创建汇总信息
+    summary_col1, summary_col2 = st.columns(2)
 
-        # 未匹配资产详细分析
-        if len(unmatched_financial) > 0 or len(unmatched_physical) > 0:
-            with st.expander("📊 未匹配资产详细分析", expanded=False):
+    with summary_col1:
+        st.markdown("#### 📊 数据概况")
+        st.write(f"• 财务资产总数：**{len(financial_data):,}** 项")
+        st.write(
+            f"• 实物资产总数：**{st.session_state.get('physical_deduped_count', len(physical_data)):,}** 项（去重后）")
+        st.write(f"• 映射关系总数：**{len(mapping_data):,}** 条")
+        st.write(f"• 整体匹配率：**{overall_match_rate:.1f}%**")
 
-                # 按部门分析未匹配财务资产
-                financial_dept_unmatched = {}
-                for f in unmatched_financial:
-                    dept = f.get("部门名称", "未知部门")
-                    if dept not in financial_dept_unmatched:
-                        financial_dept_unmatched[dept] = {"count": 0, "value": 0}
-                    financial_dept_unmatched[dept]["count"] += 1
-                    financial_dept_unmatched[dept]["value"] += safe_get_value(f, "资产价值")
+    with summary_col2:
+        st.markdown("#### 💰 价值概况")
+        st.write(f"• 财务资产总价值：**¥{financial_total_value:,.2f}**")
+        st.write(f"• 实物资产总价值：**¥{physical_total_value:,.2f}**")
+        st.write(f"• 总价值差异：**¥{total_diff:,.2f}**")
 
-                # 按部门分析未匹配实物资产
-                physical_dept_unmatched = {}
-                if unmatched_physical:
-                    for _, row in unmatched_physical_df_deduped.iterrows():
-                        dept = row.get("存放部门", "未知部门")
-                        if dept not in physical_dept_unmatched:
-                            physical_dept_unmatched[dept] = {"count": 0, "value": 0}
-                        physical_dept_unmatched[dept]["count"] += 1
-                        physical_dept_unmatched[dept]["value"] += safe_get_value(row.to_dict(), "资产价值")
+        if matched_count > 0:
+            st.write(f"• 已匹配项目：**{matched_count:,}** 项")
 
-                # 显示部门级未匹配分析
-                col_left, col_right = st.columns(2)
-
-                with col_left:
-                    st.markdown("**📊 未匹配财务资产（按部门）**")
-                    if financial_dept_unmatched:
-                        financial_unmatched_df = pd.DataFrame([
-                            {
-                                "部门": dept,
-                                "未匹配数量": stats["count"],
-                                "未匹配价值": f"¥{stats['value']:,.2f}",
-                                "占该部门比例": f"{(stats['count'] / financial_dept_stats.get(dept, {}).get('count', 1) * 100):.1f}%" if dept in financial_dept_stats else "100%"
-                            }
-                            for dept, stats in sorted(financial_dept_unmatched.items(),
-                                                      key=lambda x: x[1]['value'], reverse=True)
-                        ])
-                        st.dataframe(financial_unmatched_df, use_container_width=True)
-                    else:
-                        st.success("✅ 所有财务资产都已匹配")
-
-                with col_right:
-                    st.markdown("**📋 未匹配实物资产（按部门）**")
-                    if physical_dept_unmatched:
-                        physical_unmatched_df = pd.DataFrame([
-                            {
-                                "部门": dept,
-                                "未匹配数量": stats["count"],
-                                "未匹配价值": f"¥{stats['value']:,.2f}",
-                                "占该部门比例": f"{(stats['count'] / financial_dept_stats.get(dept, {}).get('count', 1) * 100):.1f}%" if dept in financial_dept_stats else "100%"
-                            }
-                            for dept, stats in sorted(physical_dept_unmatched.items(),
-                                                      key=lambda x: x[1]['value'], reverse=True)
-                        ])
-                        st.dataframe(physical_unmatched_df, use_container_width=True)
-                    else:
-                        st.success("✅ 所有实物资产都已匹配")
-
-        # ========== 导出功能 ==========
-        st.markdown("### 📥 导出分析报告")
-
-        col_export1, col_export2 = st.columns(2)
-
-        with col_export1:
-            if st.button("📊 导出价值差异分析报告", key="export_value_diff_analysis"):
-                try:
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-
-                        # 总体统计表
-                        overall_stats = pd.DataFrame({
-                            "指标": [
-                                "财务资产总价值", "实物资产总价值", "总价值差异", "总差异率",
-                                "财务资产总数", "实物资产总数", "映射关系总数", "整体匹配率"
-                            ],
-                            "数值": [
-                                f"¥{financial_total_value:,.2f}", f"¥{physical_total_value:,.2f}",
-                                f"¥{total_diff:,.2f}", f"{total_diff_rate:.2f}%",
-                                len(financial_data), len(physical_data), len(mapping_data), f"{overall_match_rate:.1f}%"
-                            ]
-                        })
-                        overall_stats.to_excel(writer, sheet_name='总体统计', index=False)
-
-                        # 价值差异明细
-                        if value_differences:
-                            diff_df = pd.DataFrame(value_differences)
-                            diff_df.to_excel(writer, sheet_name='价值差异明细', index=False)
-
-                        # 部门统计
-                        if financial_dept_stats:
-                            dept_stats_df = pd.DataFrame([
-                                {
-                                    "部门": dept,
-                                    "资产数量": stats["count"],
-                                    "总价值": stats["value"],
-                                    "已匹配": stats["matched"],
-                                    "匹配率": f"{(stats['matched'] / stats['count'] * 100):.1f}%"
-                                }
-                                for dept, stats in financial_dept_stats.items()
-                            ])
-                            dept_stats_df.to_excel(writer, sheet_name='部门统计', index=False)
-
-                    output.seek(0)
-                    st.download_button(
-                        label="下载价值差异分析报告",
-                        data=output,
-                        file_name=f"价值差异分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_value_diff_analysis"
-                    )
-                    st.success("✅ 价值差异分析报告生成成功！")
-
-                except Exception as e:
-                    st.error(f"生成报告失败: {str(e)}")
-
-        with col_export2:
-            if st.button("⚠️ 导出未匹配资产分析报告", key="export_unmatched_analysis"):
-                try:
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-
-                        # 未匹配汇总表
-                        unmatched_summary = pd.DataFrame({
-                            "指标": [
-                                "未匹配财务资产数量", "未匹配财务资产价值", "财务资产未匹配率",
-                                "未匹配实物资产数量", "未匹配实物资产价值", "实物资产未匹配率",
-                                "未匹配价值差异", "差异影响率"
-                            ],
-                            "数值": [
-                                len(unmatched_financial), f"¥{unmatched_financial_value:,.2f}",
-                                f"{(len(unmatched_financial) / len(financial_data) * 100):.1f}%",
-                                effective_unmatched_physical, f"¥{unmatched_physical_value:,.2f}",
-                                f"{(len(unmatched_physical) / len(physical_data) * 100):.1f}%",
-                                f"¥{unmatched_value_diff:,.2f}", f"{unmatched_impact_rate:.1f}%"
-                            ]
-                        })
-                        unmatched_summary.to_excel(writer, sheet_name='未匹配汇总', index=False)
-
-                        # 未匹配财务资产明细
-                        if unmatched_financial:
-                            unmatched_financial_detail = pd.DataFrame(unmatched_financial)
-                            unmatched_financial_detail.to_excel(writer, sheet_name='未匹配财务资产', index=False)
-
-                        # 未匹配实物资产明细
-                        if len(unmatched_physical_df_deduped) > 0:
-                            unmatched_physical_df_deduped.to_excel(writer, sheet_name='未匹配实物资产', index=False)
-
-                    output.seek(0)
-                    st.download_button(
-                        label="下载未匹配资产分析报告",
-                        data=output,
-                        file_name=f"未匹配资产分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_unmatched_analysis"
-                    )
-                    st.success("✅ 未匹配资产分析报告生成成功！")
-
-                except Exception as e:
-                    st.error(f"生成报告失败: {str(e)}")
-
-    # 部门统计
-    st.subheader("🏢 部门统计")
-
-    # 财务系统部门统计
-    financial_dept_stats = {}
-    for f in financial_data:
-        dept = f.get("部门名称", "未知部门")
-        if dept not in financial_dept_stats:
-            financial_dept_stats[dept] = {"count": 0, "value": 0, "matched": 0}
-        financial_dept_stats[dept]["count"] += 1
-        financial_dept_stats[dept]["value"] += safe_get_value(f, "资产价值")
-
-        # 检查是否已匹配
-        financial_code = str(f.get("资产编号+序号", "")).strip()
-        if financial_code in financial_to_physical_mapping:
-            financial_dept_stats[dept]["matched"] += 1
-
-    # 实物系统部门统计
-    physical_dept_stats = {}
-    for p in physical_data:
-        dept = p.get("存放部门", "未知部门")
-        if dept not in physical_dept_stats:
-            physical_dept_stats[dept] = {"count": 0, "value": 0, "matched": 0}
-        physical_dept_stats[dept]["count"] += 1
-        physical_dept_stats[dept]["value"] += safe_get_value(p, "资产价值")
-
-        # 检查是否已匹配
-        physical_code = str(p.get("固定资产编码", "")).strip()
-        if physical_code in physical_to_financial_mapping:
-            physical_dept_stats[dept]["matched"] += 1
-
-    # 显示部门统计
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**财务系统部门统计**")
-        financial_dept_df = pd.DataFrame([
-            {
-                "部门": dept,
-                "资产数量": stats["count"],
-                "总价值": f"¥{stats['value']:,.2f}",
-                "已匹配": stats["matched"],
-                "匹配率": f"{(stats['matched'] / stats['count'] * 100):.1f}%" if stats['count'] > 0 else "0%"
-            }
-            for dept, stats in financial_dept_stats.items()
-        ])
-        st.dataframe(financial_dept_df, use_container_width=True)
-
-    with col2:
-        st.write("**实物系统部门统计**")
-        physical_dept_df = pd.DataFrame([
-            {
-                "部门": dept,
-                "资产数量": stats["count"],
-                "总价值": f"¥{stats['value']:,.2f}",
-                "已匹配": stats["matched"],
-                "匹配率": f"{(stats['matched'] / stats['count'] * 100):.1f}%" if stats['count'] > 0 else "0%"
-            }
-            for dept, stats in physical_dept_stats.items()
-        ])
-        st.dataframe(physical_dept_df, use_container_width=True)
-
-    # 资产分类统计
-    st.subheader("📋 资产分类统计")
-
-    # 财务资产分类统计
-    financial_category_stats = {}
-    for f in financial_data:
-        category = f.get("资产分类", "未知分类")
-        if category not in financial_category_stats:
-            financial_category_stats[category] = {"count": 0, "value": 0}
-        financial_category_stats[category]["count"] += 1
-        financial_category_stats[category]["value"] += safe_get_value(f, "资产价值")
-
-    # 实物资产分类统计
-    physical_category_stats = {}
-    for p in physical_data:
-        category = p.get("固定资产类型", "未知分类")
-        if category not in physical_category_stats:
-            physical_category_stats[category] = {"count": 0, "value": 0}
-        physical_category_stats[category]["count"] += 1
-        physical_category_stats[category]["value"] += safe_get_value(p, "资产价值")
-
-    # 显示分类统计
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**财务资产分类统计**")
-        if financial_category_stats:
-            financial_cat_df = pd.DataFrame([
-                {
-                    "分类": category,
-                    "数量": stats["count"],
-                    "总价值": f"¥{stats['value']:,.2f}",
-                    "占比": f"{(stats['count'] / len(financial_data) * 100):.1f}%"
-                }
-                for category, stats in financial_category_stats.items()
-            ])
-            st.dataframe(financial_cat_df, use_container_width=True)
-
-    with col2:
-        st.write("**实物资产分类统计**")
-        if physical_category_stats:
-            physical_cat_df = pd.DataFrame([
-                {
-                    "分类": category,
-                    "数量": stats["count"],
-                    "总价值": f"¥{stats['value']:,.2f}",
-                    "占比": f"{(stats['count'] / len(physical_data) * 100):.1f}%"
-                }
-                for category, stats in physical_category_stats.items()
-            ])
-            st.dataframe(physical_cat_df, use_container_width=True)
-
-    # 导出统计报告
-    st.subheader("📥 导出统计报告")
-    if st.button("生成并下载统计报告"):
-        try:
-            # 创建统计报告
-            report_data = {
-                "基础统计": {
-                    "财务资产总数": len(financial_data),
-                    "实物资产总数": len(physical_data),
-                    "已匹配财务资产": matched_financial,
-                    "已匹配实物资产": matched_physical,
-                    "财务资产匹配率": f"{financial_match_rate:.1f}%",
-                    "实物资产匹配率": f"{physical_match_rate:.1f}%"
-                },
-                "价值统计": {
-                    "财务资产总价值": financial_total_value,
-                    "实物资产总价值": physical_total_value,
-                    "总价值差异": total_diff
-                }
-            }
-
-            # 创建Excel文件
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # 基础统计表
-                basic_stats_df = pd.DataFrame([
-                    {"指标": k, "数值": v} for k, v in report_data["基础统计"].items()
-                ])
-                basic_stats_df.to_excel(writer, sheet_name='基础统计', index=False)
-
-                # 价值统计表
-                value_stats_df = pd.DataFrame([
-                    {"指标": k, "数值": v} for k, v in report_data["价值统计"].items()
-                ])
-                value_stats_df.to_excel(writer, sheet_name='价值统计', index=False)
-
-                # 部门统计表
-                if financial_dept_df is not None:
-                    financial_dept_df.to_excel(writer, sheet_name='财务部门统计', index=False)
-                if physical_dept_df is not None:
-                    physical_dept_df.to_excel(writer, sheet_name='实物部门统计', index=False)
-
-                # 分类统计表
-                if 'financial_cat_df' in locals():
-                    financial_cat_df.to_excel(writer, sheet_name='财务分类统计', index=False)
-                if 'physical_cat_df' in locals():
-                    physical_cat_df.to_excel(writer, sheet_name='实物分类统计', index=False)
-
-                # 价值差异表
-                if value_differences:
-                    diff_df = pd.DataFrame(value_differences)
-                    diff_df.to_excel(writer, sheet_name='价值差异明细', index=False)
-
-            output.seek(0)
-            st.download_button(
-                label="下载统计报告",
-                data=output,
-                file_name=f"资产统计报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.success("✅ 统计报告生成成功！")
-
-        except Exception as e:
-            st.error(f"生成报告失败: {str(e)}")
+    # 数据处理说明
+    if non_accounting_count > 0 or physical_duplicate_count > 0:
+        st.markdown("#### ℹ️ 数据处理说明")
+        if non_accounting_count > 0:
+            st.info(f"📌 已排除 **{non_accounting_count:,}** 条非核算资产")
+        if physical_duplicate_count > 0:
+            st.info(f"📌 已去重 **{physical_duplicate_count:,}** 条重复记录")
+    # 最后更新时间
+    st.caption(f"📅 统计生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 def all_data_view_page():
@@ -3237,15 +3597,16 @@ def all_data_view_page():
 
         # 选择要显示的列
         available_columns = list(filtered_df.columns)
-        default_columns = ["资产编号+序号", "资产名称", "资产分类", "资产价值", "部门名称", "保管人", "匹配状态",
-                           "对应实物编号"]
+        default_columns = ["资产编号+序号", "资产名称", "资产分类", "资产价值", "累计折旧", "资产净额", "部门名称", "保管人", "匹配状态", "对应实物编号"]
         display_columns = [col for col in default_columns if col in available_columns]
 
         # 格式化显示
         display_df = filtered_df[display_columns].copy()
-        if "资产价值" in display_df.columns:
-            display_df["资产价值"] = display_df["资产价值"].apply(
-                lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else x)
+        # 格式化所有金额字段
+        for amount_col in ["资产价值", "累计折旧", "资产净额"]:
+            if amount_col in display_df.columns:
+                display_df[amount_col] = display_df[amount_col].apply(
+                    lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else x)
 
         st.dataframe(display_df, use_container_width=True)
 
@@ -3379,8 +3740,7 @@ def all_data_view_page():
 
         value_field = "固定资产原值"
 
-        default_columns = ["固定资产编码", "固定资产名称", "固定资产类型", "固定资产原值", "存放部门", "保管人",
-                           "使用状态", "匹配状态", "对应财务编号"]
+        default_columns = ["固定资产编码", "固定资产名称", "固定资产类型", "固定资产原值", "累计折旧", "资产净值", "存放部门", "保管人", "使用状态", "匹配状态", "对应财务编号"]
 
         # 只显示存在的列
 
@@ -3392,10 +3752,11 @@ def all_data_view_page():
 
         display_df = filtered_df[display_columns].copy()
 
-        display_df["固定资产原值"] = display_df["固定资产原值"].apply(
-
-            lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) and x > 0 else (
-                f"¥0.00" if isinstance(x, (int, float)) else str(x)))
+        for amount_col in ["固定资产原值", "累计折旧", "资产净值"]:
+            if amount_col in display_df.columns:
+                display_df[amount_col] = display_df[amount_col].apply(
+                    lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else (
+                        f"¥0.00" if pd.isna(x) or x == "" else str(x)))
 
         st.dataframe(display_df, use_container_width=True)
 
@@ -3415,51 +3776,104 @@ def all_data_view_page():
 
             st.metric("未匹配", unmatched_count)
 
-        with col3:
-            # ✅ 关键修复：仅使用固定资产原值字段计算总价值
-            try:
-                # 原始计算（包含重复记录）
-                total_value_raw = 0.0
-                valid_count = 0
-                error_count = 0
+        # ✅ 关键修复：仅使用固定资产原值字段计算总价值，支持核算筛选
+        try:
+            # 🆕 新增：检查是否有核算字段
+            has_accounting_field = "是否核算" in filtered_df.columns
 
-                for _, row in filtered_df.iterrows():
-                    try:
-                        value = safe_convert_to_float(row.get("固定资产原值", 0))
-                        if value > 0:
-                            total_value_raw += value
-                            valid_count += 1
-                        elif value == 0:
-                            pass  # 价值为0的记录
-                        else:
-                            error_count += 1
-                    except:
+            # 原始计算（包含重复记录，支持核算筛选）
+            total_value_raw = 0.0
+            valid_count = 0
+            error_count = 0
+            non_accounting_count = 0  # 非核算资产数量
+
+            for _, row in filtered_df.iterrows():
+                try:
+                    # 🆕 检查是否核算
+                    if has_accounting_field:
+                        accounting_status = str(row.get("是否核算", "")).strip()
+                        if accounting_status not in ["是", "Y", "y", "Yes", "YES", "1", "True", "true"]:
+                            non_accounting_count += 1
+                            continue  # 跳过非核算资产
+
+                    value = safe_convert_to_float(row.get("固定资产原值", 0))
+                    if value > 0:
+                        total_value_raw += value
+                        valid_count += 1
+                    elif value == 0:
+                        pass  # 价值为0的记录
+                    else:
                         error_count += 1
+                except:
+                    error_count += 1
 
-                # 去重计算（按固定资产编码去重）
-                df_deduped = filtered_df.drop_duplicates(subset=['固定资产编码'], keep='first')
-                total_value_dedup = 0.0
-                valid_count_dedup = 0
+            # 去重计算（按固定资产编码去重）
+            df_deduped = filtered_df.drop_duplicates(subset=['固定资产编码'], keep='first')
 
-                for _, row in df_deduped.iterrows():
-                    try:
-                        value = safe_convert_to_float(row.get("固定资产原值", 0))
-                        if value > 0:
-                            total_value_dedup += value
-                            valid_count_dedup += 1
-                    except:
-                        pass
+            # 🆕 新增：对去重后的数据也应用核算筛选
+            total_value_dedup = 0.0
+            valid_count_dedup = 0
+            non_accounting_dedup_count = 0
 
-                # 显示结果
-                duplicate_count = len(filtered_df) - len(df_deduped)
+            for _, row in df_deduped.iterrows():
+                try:
+                    # 🆕 检查是否核算
+                    if has_accounting_field:
+                        accounting_status = str(row.get("是否核算", "")).strip()
+                        if accounting_status not in ["是", "Y", "y", "Yes", "YES", "1", "True", "true"]:
+                            non_accounting_dedup_count += 1
+                            continue  # 跳过非核算资产
 
-                if duplicate_count > 0:
-                    st.metric("固定资产原值总计", f"¥{total_value_dedup:,.2f}")
-                    # ✅ 修复：使用更简洁的说明文字，避免文字过长
-                    st.caption(f"已去重 ({duplicate_count}条)")
-                else:
-                    st.metric("固定资产原值总计", f"¥{total_value_raw:,.2f}")
-                    st.caption("无重复记录")
+                    value = safe_convert_to_float(row.get("固定资产原值", 0))
+                    if value > 0:
+                        total_value_dedup += value
+                        valid_count_dedup += 1
+                except:
+                    pass
+
+            # 显示结果
+            duplicate_count = len(filtered_df) - len(df_deduped)
+
+            if duplicate_count > 0:
+                st.metric("固定资产原值总计", f"¥{total_value_dedup:,.2f}")
+                # ✅ 修复：使用更简洁的说明文字，避免文字过长
+                caption_text = f"已去重 ({duplicate_count}条)"
+                if has_accounting_field and non_accounting_dedup_count > 0:
+                    caption_text += f" | 已排除{non_accounting_dedup_count}条非核算"
+                st.caption(caption_text)
+            else:
+                st.metric("固定资产原值总计", f"¥{total_value_raw:,.2f}")
+                caption_text = "无重复记录"
+                if has_accounting_field and non_accounting_count > 0:
+                    caption_text += f" | 已排除{non_accounting_count}条非核算"
+                st.caption(caption_text)
+
+            # ✅ 新增：显示核算筛选统计
+            if has_accounting_field:
+                total_accounting = valid_count if duplicate_count == 0 else valid_count_dedup
+                total_non_accounting = non_accounting_count if duplicate_count == 0 else non_accounting_dedup_count
+                total_records = total_accounting + total_non_accounting
+
+                if total_non_accounting > 0:
+                    st.info(
+                        f"📊 核算筛选统计: 核算资产{total_accounting}条 | 非核算资产{total_non_accounting}条 | 总计{total_records}条")
+
+            # 显示处理统计
+            if valid_count > 0:
+                success_rate = (valid_count / len(filtered_df)) * 100
+                if success_rate < 100:
+                    st.warning(f"⚠️ {error_count}条记录数值异常")
+            else:
+                st.error("❌ 所有记录数值异常")
+
+        except Exception as e:
+            st.metric("固定资产原值总计", "计算错误")
+            st.error(f"❌ 计算错误: {str(e)}")
+
+            with st.expander("🚨 错误详情"):
+                st.code(f"错误类型: {type(e).__name__}\n错误信息: {str(e)}")
+                if len(filtered_df) > 0:
+                    st.write("数据样本：", filtered_df["固定资产原值"].head(3).tolist())
 
                 # ✅ 修复：将详细信息移到下方单独显示，避免挤压
                 if duplicate_count > 0:
@@ -3472,10 +3886,6 @@ def all_data_view_page():
                         st.warning(f"⚠️ {error_count}条记录数值异常")
                 else:
                     st.error("❌ 所有记录数值异常")
-
-            except Exception as e:
-                st.metric("固定资产原值总计", "计算错误")
-                st.error(f"❌ 计算错误: {str(e)}")
 
         # ✅ 新增：将详细统计按钮移到列外，单独显示
         if valid_count > 0:
@@ -3633,72 +4043,100 @@ def all_data_view_page():
 
                     # 选择要显示的列
                     available_columns = list(df.columns)
-                    default_columns = ["资产编号+序号", "资产名称", "资产分类", "资产价值", "部门名称", "保管人"]
+                    default_columns = ["资产编号+序号", "资产名称", "资产分类", "资产价值", "累计折旧", "资产净额", "部门名称", "保管人"]
                     display_columns = [col for col in default_columns if col in available_columns]
 
                     # 格式化显示
                     display_df = df[display_columns].copy()
-                    if "资产价值" in display_df.columns:
-                        display_df["资产价值"] = display_df["资产价值"].apply(
-                            lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else x)
+                    # 格式化所有金额字段
+                    for amount_col in ["资产价值", "累计折旧", "资产净额"]:
+                        if amount_col in display_df.columns:
+                            display_df[amount_col] = display_df[amount_col].apply(
+                                lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else x)
 
                     st.dataframe(display_df, use_container_width=True)
 
                     # 统计信息
-                    col1, col2 = st.columns(2)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         # 安全计算未匹配财务资产总价值
                         try:
                             total_value = 0.0
-                            for record in unmatched_financial:
+                            for record in unmatched_financial:  # ✅ 修复：使用正确的变量
                                 if isinstance(record, dict):
-                                    # 尝试多个可能的价值字段
-                                    value = record.get("资产价值", 0)
-                                    if value is None or value == "":
-                                        # 尝试其他可能的字段名
-                                        for field in ["账面价值", "资产净额", "固定资产原值"]:
-                                            if field in record and record[field] is not None:
-                                                value = record[field]
-                                                break
-                                    total_value += safe_convert_to_float(value)
-
+                                    # 使用财务系统的价值字段
+                                    value = safe_get_value(record, "资产价值", 0)
+                                    total_value += value
                             st.metric("未匹配资产总价值", f"¥{total_value:,.2f}")
-
-                            # 调试信息（可选，用于排查问题）
-                            if total_value == 0 and len(unmatched_financial) > 0:
-                                st.warning(
-                                    f"⚠️ 检测到{len(unmatched_financial)}条未匹配资产但总价值为0，可能是数据字段问题")
-                                with st.expander("🔧 调试信息"):
-                                    sample_record = unmatched_financial[0]
-                                    st.write("第一条记录的字段：", list(sample_record.keys()))
-                                    st.write("价值相关字段：", {k: v for k, v in sample_record.items() if
-                                                               "价值" in k or "金额" in k or "值" in k})
-
                         except Exception as e:
                             st.metric("未匹配资产总价值", "计算错误")
-                            st.error(f"计算错误详情: {str(e)}")
+
                     with col2:
                         match_rate = ((len(financial_data) - len(unmatched_financial)) / len(
                             financial_data) * 100) if financial_data else 0
                         st.metric("财务资产匹配率", f"{match_rate:.1f}%")
 
-                    # 导出未匹配财务资产
-                    if st.button("📥 导出未匹配财务资产", key="export_unmatched_financial"):
-                        try:
-                            output = io.BytesIO()
-                            df[display_columns].to_excel(output, index=False, engine='openpyxl')
-                            output.seek(0)
-                            st.download_button(
-                                label="下载Excel文件",
-                                data=output,
-                                file_name=f"未匹配财务资产_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="download_unmatched_financial"
-                            )
-                        except Exception as e:
-                            st.error(f"导出失败: {str(e)}")
-                else:
-                    st.success("✅ 所有财务资产都已匹配")
+                        with col3:
+                            # 计算累计折旧总额 - 财务系统，使用"累计折旧"字段
+                            try:
+                                total_depreciation = 0.0
+                                valid_depreciation_count = 0
+                                zero_depreciation_count = 0
+
+                                for record in unmatched_financial:
+                                    if isinstance(record, dict):
+                                        # 直接使用"累计折旧"字段
+                                        depreciation_value = safe_get_value(record, "累计折旧", 0)
+
+                                        if depreciation_value > 0:
+                                            total_depreciation += depreciation_value
+                                            valid_depreciation_count += 1
+                                        elif depreciation_value == 0:
+                                            zero_depreciation_count += 1
+
+                                st.metric("未匹配累计折旧总额", f"¥{total_depreciation:,.2f}")
+
+                                # 显示详细统计
+                                if valid_depreciation_count > 0:
+                                    st.caption(f"✅ 有折旧: {valid_depreciation_count}条")
+                                if zero_depreciation_count > 0:
+                                    st.caption(f"⚪ 零折旧: {zero_depreciation_count}条")
+
+                            except Exception as e:
+                                st.metric("未匹配累计折旧总额", "计算错误")
+                                st.error(f"计算错误: {str(e)}")
+
+                        with col4:
+                            # 计算资产净值总计 - 财务系统，使用"资产净额"字段
+                            try:
+                                total_net_value = 0.0
+                                valid_net_count = 0
+                                zero_net_count = 0
+
+                                for record in unmatched_financial:
+                                    if isinstance(record, dict):
+                                        # 直接使用"资产净额"字段
+                                        net_value = safe_get_value(record, "资产净额", 0)
+
+                                        if net_value > 0:
+                                            total_net_value += net_value
+                                            valid_net_count += 1
+                                        elif net_value == 0:
+                                            zero_net_count += 1
+
+                                st.metric("未匹配资产净值总计", f"¥{total_net_value:,.2f}")
+
+                                # 显示详细统计
+                                if valid_net_count > 0:
+                                    st.caption(f"✅ 有净值: {valid_net_count}条")
+                                if zero_net_count > 0:
+                                    st.caption(f"⚪ 零净值: {zero_net_count}条")
+
+                                st.info("💡 使用财务系统 `资产净额` 字段")
+
+                            except Exception as e:
+                                st.metric("未匹配资产净值总计", "计算错误")
+                                st.caption(f"错误: {str(e)}")
 
         with tab2:
             if not physical_data:
@@ -3728,20 +4166,22 @@ def all_data_view_page():
 
                     # 选择要显示的列
                     available_columns = list(df.columns)
-                    default_columns = ["固定资产编码", "固定资产名称", "固定资产类型", "资产价值", "存放部门", "保管人",
-                                       "使用状态"]
+                    default_columns = ["固定资产编码", "固定资产名称", "固定资产类型", "固定资产原值", "累计折旧", "资产净值", "存放部门", "保管人", "使用状态"]
                     display_columns = [col for col in default_columns if col in available_columns]
 
                     # 格式化显示
                     display_df = df[display_columns].copy()
-                    if "资产价值" in display_df.columns:
-                        display_df["资产价值"] = display_df["资产价值"].apply(
-                            lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else x)
+                    # 格式化所有金额字段
+                    for amount_col in ["固定资产原值", "资产价值", "累计折旧", "资产净值"]:
+                        if amount_col in display_df.columns:
+                            display_df[amount_col] = display_df[amount_col].apply(
+                                lambda x: f"¥{x:,.2f}" if isinstance(x, (int, float)) else (
+                                    f"¥0.00" if pd.isna(x) or x == "" else str(x)))
 
                     st.dataframe(display_df, use_container_width=True)
 
                     # 统计信息
-                    col1, col2 = st.columns(2)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         # 智能识别实物资产价值字段并计算总价值
                         try:
@@ -3954,6 +4394,81 @@ def all_data_view_page():
                 else:  # ✅ 修复：正确的缩进，与if unmatched_physical对齐
                     st.success("✅ 所有实物资产都已匹配")
 
+                with col3:
+                    # 计算累计折旧总额 - 实物系统，使用"累计折旧"字段
+                    try:
+                        total_depreciation = 0.0
+                        valid_depreciation_count = 0
+                        zero_depreciation_count = 0
+
+                        for record in unmatched_physical:
+                            if isinstance(record, dict):
+                                # 直接使用"累计折旧"字段
+                                depreciation_value = safe_get_value(record, "累计折旧", 0)
+
+                                if depreciation_value > 0:
+                                    total_depreciation += depreciation_value
+                                    valid_depreciation_count += 1
+                                elif depreciation_value == 0:
+                                    zero_depreciation_count += 1
+
+                        st.metric("未匹配累计折旧总额", f"¥{total_depreciation:,.2f}")
+
+                        # 显示详细统计
+                        if valid_depreciation_count > 0:
+                            st.caption(f"✅ 有折旧: {valid_depreciation_count}条")
+                        if zero_depreciation_count > 0:
+                            st.caption(f"⚪ 零折旧: {zero_depreciation_count}条")
+
+                        st.info("💡 使用实物系统 `累计折旧` 字段")
+
+                    except Exception as e:
+                        st.metric("未匹配累计折旧总额", "计算错误")
+                        st.caption(f"错误: {str(e)}")
+
+                with col4:
+                    # 计算资产净值总计 - 实物系统，通过"固定资产原值-累计折旧"计算
+                    try:
+                        total_net_value = 0.0
+                        calculated_count = 0
+                        no_original_count = 0
+                        negative_net_count = 0
+
+                        for record in unmatched_physical:
+                            if isinstance(record, dict):
+                                # 获取固定资产原值
+                                original_value = safe_get_value(record, "固定资产原值", 0)
+
+                                if original_value > 0:
+                                    # 获取累计折旧
+                                    depreciation_value = safe_get_value(record, "累计折旧", 0)
+
+                                    # 计算净值 = 固定资产原值 - 累计折旧
+                                    calculated_net = original_value - depreciation_value
+
+                                    if calculated_net >= 0:
+                                        total_net_value += calculated_net
+                                        calculated_count += 1
+                                    else:
+                                        negative_net_count += 1
+                                else:
+                                    no_original_count += 1
+
+                        st.metric("未匹配资产净值总计", f"¥{total_net_value:,.2f}")
+
+                        # 显示计算统计
+                        if calculated_count > 0:
+                            st.caption(f"🧮 成功计算: {calculated_count}条")
+                        if no_original_count > 0:
+                            st.caption(f"⚪ 无原值: {no_original_count}条")
+                        if negative_net_count > 0:
+                            st.caption(f"⚠️ 负净值: {negative_net_count}条")
+
+                        st.info("💡 净值 = 固定资产原值 - 累计折旧")
+
+                    except Exception as e:
+                        st.metric("未匹配资产净值总计", "计算错误")
+                        st.caption(f"错误: {str(e)}")
 
 
 def main():
