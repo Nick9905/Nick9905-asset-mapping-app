@@ -507,6 +507,7 @@ def data_import_page():
     financial_data = current_financial
     physical_data = current_physical
     mapping_data = current_mapping    
+    
     st.info("💡 **映射规则说明**：财务系统的'资产编号+序号' ↔ 实物台账的'固定资产编码'（多对多关系）")
 
     # 创建四个标签页
@@ -1611,7 +1612,7 @@ def data_import_page():
             
             st.metric(
                 label="🔗 映射关系数据",
-                value=f"{len(mapping_data)} 条",
+                value=f"{len(current_mapping)} 条",
                 delta="映射关系" if mapping_data else "无数据"
             )
 
