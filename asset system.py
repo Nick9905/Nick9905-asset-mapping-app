@@ -4559,8 +4559,29 @@ def all_data_view_page():
 
 
 def main():
-  """主函数"""
-  st.title("🔗 资产映射关系查询")
+    """主函数"""
+    
+    # 🆕 防止应用休眠
+    def keep_alive():
+        import threading
+        import time
+        import requests
+        
+        def ping_self():
+            while True:
+                try:
+                    time.sleep(600)  # 10分钟ping一次
+                    # 🔧 把下面的网址改成你的实际应用网址
+                    requests.get("https://你的应用名.streamlit.app", timeout=10)
+                except:
+                    pass
+        
+        thread = threading.Thread(target=ping_self, daemon=True)
+        thread.start()
+    
+    keep_alive()
+    
+    st.title("🔗 资产映射关系查询")
 
   # 侧边栏导航
   with st.sidebar:
