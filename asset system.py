@@ -9,9 +9,181 @@ import io
 import numpy as np
 import re
 import plotly
-
+import requests
+import base64
 # ========== 配置和常量 ==========
+# ========== GitHub数据存储配置 ==========
 
+# GitHub配置 - 请修改为您的仓库信息
+GITHUB_TOKEN = st.secrets.get("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", "")
+GITHUB_REPO = "Nick9905/Nick9905-asset-mapping-app"  # 请修改这里！！！
+GITHUB_BRANCH = "main"
+def save_data_to_github(data, filename):
+    """保存数据到GitHub仓库"""
+    if not GITHUB_TOKEN:
+        return False
+    
+    try:
+        # 清理数据
+        cleaned_data = clean_data_for_json(data)
+        content = json.dumps(cleaned_data, ensure_ascii=False, indent=2)
+        
+        # GitHub API URL
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        
+        # 获取文件当前SHA（如果文件存在）
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # 检查文件是否存在
+        response = requests.get(url, headers=headers)
+        sha = None
+        if response.status_code == 200:
+            sha = response.json().get("sha")
+        
+        # 准备数据
+        data_to_send = {
+            "message": f"Update {filename}",
+            "content": base64.b64encode(content.encode('utf-8')).decode('utf-8'),
+            "branch": GITHUB_BRANCH
+        }
+        
+        if sha:
+            data_to_send["sha"] = sha
+        
+        # 发送请求
+        response = requests.put(url, headers=headers, json=data_to_send)
+        return response.status_code in [200, 201]
+        
+    except Exception as e:
+        st.error(f"GitHub保存失败: {str(e)}")
+        return False
+
+def load_data_from_github(filename):
+    """从GitHub仓库加载数据"""
+    if not GITHUB_TOKEN:
+        return None
+    
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            content = response.json().get("content", "")
+            decoded_content = base64.b64decode(content).decode('utf-8')
+            return json.loads(decoded_content)
+        return None
+        
+    except Exception as e:
+        st.error(f"GitHub加载失败: {str(e)}")
+        return None
+
+def save_data_enhanced(data, filename):
+    """增强的数据保存函数 - 优先保存到GitHub，失败则保存到本地"""
+    try:
+        # 首先尝试保存到GitHub
+        if save_data_to_github(data, filename):
+            st.success(f"✅ 数据已保存到GitHub云端")
+            return True
+        else:
+            # GitHub保存失败，降级到本地保存
+            st.warning("⚠️ GitHub保存失败，使用本地保存")
+            return save_data(data, filename)
+    except Exception as e:
+        st.error(f"保存失败: {str(e)}")
+        return False
+
+def load_data_enhanced(filename):
+    """增强的数据加载函数 - 优先从GitHub加载，失败则从本地加载"""
+    try:
+        # 首先尝试从GitHub加载
+        github_data = load_data_from_github(filename)
+        if github_data is not None:
+            return github_data
+        else:
+            # GitHub加载失败，从本地加载
+            return load_data(filename)
+    except Exception as e:
+        st.error(f"加载失败: {str(e)}")
+        return []
+def save_data_to_github ( data, filename ):
+     """保存数据到GitHub仓库""" if not  GITHUB_TOKEN:
+         return False try :
+         # 清理数据 
+        cleaned_data = clean_data_for_json(data)
+        content = json.dumps(cleaned_data, ensure_ascii= False , indent= 2 )
+        
+         # GitHub API URL 
+        url =  f"https://api.github.com/repos/ {GITHUB_REPO} /contents/ {filename} " # 获取文件当前SHA（如果文件存在） 
+        headers = {
+             "Authorization" :  f"token  {GITHUB_TOKEN} " ,
+             "Accept" :  "application/vnd.github.v3+json" 
+        }
+        
+         # 检查文件是否存在 
+        response = requests.get(url, headers=headers)
+        sha =  None if  response.status_code ==  200 :
+            sha = response.json().get( "sha" )
+        
+         # 准备数据 
+        data_to_send = {
+             "message" :  f"Update  {filename} " ,
+             "content" : base64.b64encode(content.encode( 'utf-8' )).decode( 'utf-8' ),
+             "branch" : GITHUB_BRANCH
+        }
+        
+         if  sha:
+            data_to_send[ "sha" ] = sha
+        
+         # 发送请求 
+        response = requests.put(url, headers=headers, json=data_to_send)
+         return  response.status_code  in  [ 200 ,  201 ]
+        
+     except  Exception  as  e:
+        st.error( f"GitHub保存失败:  { str (e)} " )
+         return False def load_data_from_github ( filename ):
+     """从GitHub仓库加载数据""" if not  GITHUB_TOKEN:
+         return None try :
+        url =  f"https://api.github.com/repos/ {GITHUB_REPO} /contents/ {filename} " 
+        headers = {
+             "Authorization" :  f"token  {GITHUB_TOKEN} " ,
+             "Accept" :  "application/vnd.github.v3+json" 
+        }
+        
+        response = requests.get(url, headers=headers)
+         if  response.status_code ==  200 :
+            content = response.json().get( "content" ,  "" )
+            decoded_content = base64.b64decode(content).decode( 'utf-8' )
+             return  json.loads(decoded_content)
+         return None except  Exception  as  e:
+        st.error( f"GitHub加载失败:  { str (e)} " )
+         return None def save_data_enhanced ( data, filename ):
+     """增强的数据保存函数 - 优先保存到GitHub，失败则保存到本地""" try :
+         # 首先尝试保存到GitHub if  save_data_to_github(data, filename):
+            st.success( f"✅ 数据已保存到GitHub云端" )
+             return True else :
+             # GitHub保存失败，降级到本地保存 
+            st.warning( "⚠️ GitHub保存失败，使用本地保存" )
+             return  save_data(data, filename)
+     except  Exception  as  e:
+        st.error( f"保存失败:  { str (e)} " )
+         return False def load_data_enhanced ( filename ):
+     """增强的数据加载函数 - 优先从GitHub加载，失败则从本地加载""" try :
+         # 首先尝试从GitHub加载 
+        github_data = load_data_from_github(filename)
+         if  github_data  is not None :
+             return  github_data
+         else :
+             # GitHub加载失败，从本地加载 return  load_data(filename)
+     except  Exception  as  e:
+        st.error( f"加载失败:  { str (e)} " )
+         return  []
 # 数据文件路径
 FINANCIAL_DATA_FILE = "financial_data.json"
 PHYSICAL_DATA_FILE = "physical_data.json"
@@ -77,7 +249,7 @@ def clean_data_for_json(data):
         return [clean_record(record) for record in data]
     else:
         return clean_record(data)
-def save_data(data, filename):
+def save_data_enhanced(data, filename):
     """保存数据到JSON文件"""
     try:
         # ✅ 添加：数据验证
@@ -108,7 +280,7 @@ def save_data(data, filename):
         return False
 
 
-def load_data(filename):
+def def load_data(filename)::
     """从JSON文件加载数据"""
     try:
         if os.path.exists(filename):
@@ -421,7 +593,7 @@ def data_import_page():
         st.markdown("**必需字段**：`资产编号+序号`、`资产名称`、`资产价值`等")
 
         # 显示当前数据状态
-        current_financial = load_data(FINANCIAL_DATA_FILE)
+        current_financial = load_data_enhanced(FINANCIAL_DATA_FILE)
 
         # ✅ 添加：数据验证和修复
         if current_financial is None:
@@ -553,7 +725,7 @@ def data_import_page():
                                     record for record in current_financial
                                     if str(record.get(custom_field, "")) != custom_value
                                 ]
-                                save_data(filtered_data, FINANCIAL_DATA_FILE)
+                                save_data_enhanced(filtered_data, FINANCIAL_DATA_FILE)
                                 deleted_count = original_count - len(filtered_data)
                                 st.success(f"✅ 已删除 {deleted_count} 条记录")
                                 st.rerun()
@@ -577,7 +749,7 @@ def data_import_page():
                                 if str(record.get("部门名称", "")).strip() != ""
                             ]
 
-                        save_data(filtered_data, FINANCIAL_DATA_FILE)
+                        save_data_enhanced(filtered_data, FINANCIAL_DATA_FILE)
                         deleted_count = original_count - len(filtered_data)
                         st.success(f"✅ 已删除 {deleted_count} 条记录")
                         st.rerun()
@@ -600,7 +772,7 @@ def data_import_page():
                                 record for record in current_financial
                                 if record.get("资产编号+序号", "") not in codes_to_delete
                             ]
-                            save_data(filtered_data, FINANCIAL_DATA_FILE)
+                            save_data_enhanced(filtered_data, FINANCIAL_DATA_FILE)
                             deleted_count = original_count - len(filtered_data)
                             st.success(f"✅ 已删除 {deleted_count} 条记录")
                             st.rerun()
@@ -620,7 +792,7 @@ def data_import_page():
                         )
 
                         if final_confirm == "DELETE ALL" and st.button("🚨 清空所有数据", key="financial_clear_all"):
-                            save_data([], FINANCIAL_DATA_FILE)
+                            save_data_enhanced([], FINANCIAL_DATA_FILE)
                             st.success("✅ 已清空所有财务数据")
                             st.rerun()
 
@@ -757,7 +929,7 @@ def data_import_page():
 
                         # 根据导入模式处理数据
                         if import_mode == "覆盖导入（清空原数据）":
-                            save_data(processed_data, FINANCIAL_DATA_FILE)
+                            save_data_enhanced(processed_data, FINANCIAL_DATA_FILE)
                             st.success(f"✅ 覆盖导入 {len(processed_data)} 条财务资产记录")
 
                         elif import_mode == "追加导入（保留原数据）":
@@ -807,7 +979,7 @@ def data_import_page():
         st.markdown("**必需字段**：`固定资产编码`、`固定资产名称`、`固定资产原值`等")
 
         # 显示当前数据状态
-        current_physical = load_data(PHYSICAL_DATA_FILE)
+        current_physical = load_data_enhanced(PHYSICAL_DATA_FILE)
         if current_physical:
             st.success(f"✅ 当前已有 {len(current_physical)} 条实物资产记录")
 
@@ -1033,7 +1205,7 @@ def data_import_page():
                                     record for record in current_physical
                                     if str(record.get(custom_field, "")) != custom_value
                                 ]
-                                save_data(filtered_data, PHYSICAL_DATA_FILE)
+                                save_data_enhanced(filtered_data, PHYSICAL_DATA_FILE)
                                 deleted_count = original_count - len(filtered_data)
                                 st.success(f"✅ 已删除 {deleted_count} 条记录")
                                 st.rerun()
@@ -1057,7 +1229,7 @@ def data_import_page():
                                 if str(record.get("存放部门", "")).strip() != ""
                             ]
 
-                        save_data(filtered_data, PHYSICAL_DATA_FILE)
+                        save_data_enhanced(filtered_data, PHYSICAL_DATA_FILE)
                         deleted_count = original_count - len(filtered_data)
                         st.success(f"✅ 已删除 {deleted_count} 条记录")
                         st.rerun()
@@ -1078,7 +1250,7 @@ def data_import_page():
                                 record for record in current_physical
                                 if record.get("固定资产编码", "") not in codes_to_delete
                             ]
-                            save_data(filtered_data, PHYSICAL_DATA_FILE)
+                            save_data_enhanced(filtered_data, PHYSICAL_DATA_FILE)
                             deleted_count = original_count - len(filtered_data)
                             st.success(f"✅ 已删除 {deleted_count} 条记录")
                             st.rerun()
@@ -1096,7 +1268,7 @@ def data_import_page():
                         )
 
                         if final_confirm == "DELETE ALL" and st.button("🚨 清空所有数据", key="physical_clear_all"):
-                            save_data([], PHYSICAL_DATA_FILE)
+                            save_data_enhanced([], PHYSICAL_DATA_FILE)
                             st.success("✅ 已清空所有实物数据")
                             st.rerun()
 
@@ -1228,7 +1400,7 @@ def data_import_page():
 
                         # 根据导入模式处理数据
                         if import_mode == "覆盖导入（清空原数据）":
-                            save_data(processed_data, PHYSICAL_DATA_FILE)
+                            save_data_enhanced(processed_data, PHYSICAL_DATA_FILE)
                             st.success(f"✅ 覆盖导入 {len(processed_data)} 条实物资产记录")
 
                         elif import_mode == "追加导入（保留原数据）":
@@ -1260,39 +1432,39 @@ def data_import_page():
                             physical_df.to_excel(writer, index=False, sheet_name='实物数据')
 
                         st.download_button(
-                            label="⬇️ 下载Excel文件",
+                            label="⬇️ 下载Excel文件",  
                             data=output.getvalue(),
                             file_name=f"实物数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
-                with col3:
+                with col3:  
                     if st.button("🔄 重新上传", use_container_width=True):
-                        st.rerun()
+                        st.rerun()  
 
             except Exception as e:
                 st.error(f"❌ 文件读取失败：{str(e)}")
 
-    with tab3:
+    with tab3:  
         st.subheader("🔗 映射关系数据")
         st.markdown("**映射规则**：建立财务系统'资产编号+序号' ↔ 实物台账'固定资产编码'的对应关系")
 
         # 显示当前映射数据
-        current_mapping = load_data(MAPPING_DATA_FILE)
-        if current_mapping:
+        current_mapping = load_data_enhanced(MAPPING_DATA_FILE)
+        if current_mapping:  
             st.success(f"✅ 当前已有 {len(current_mapping)} 条映射关系")
 
             with st.expander("📊 查看当前所有映射关系", expanded=False):
                 df_mapping = pd.DataFrame(current_mapping)
 
                 search_mapping = st.text_input("🔍 搜索映射关系", key="search_mapping_current")
-                if search_mapping:
+                if search_mapping:  
                     mask = df_mapping.astype(str).apply(
                         lambda x: x.str.contains(search_mapping, case=False, na=False)).any(axis=1)
                     df_filtered = df_mapping[mask]
                     st.write(f"搜索结果：{len(df_filtered)} 条记录")
                     st.dataframe(df_filtered, use_container_width=True, height=400)
-                else:
+                else:  
                     st.dataframe(df_mapping, use_container_width=True, height=400)
 
             # 🗑️ 映射关系删除功能
@@ -1320,7 +1492,7 @@ def data_import_page():
                                     record for record in current_mapping
                                     if str(record.get(custom_field, "")) != custom_value
                                 ]
-                                save_data(filtered_data, MAPPING_DATA_FILE)
+                                save_data_enhanced(filtered_data, MAPPING_DATA_FILE)
                                 deleted_count = original_count - len(filtered_data)
                                 st.success(f"✅ 已删除 {deleted_count} 条映射关系")
                                 st.rerun()
@@ -1339,7 +1511,7 @@ def data_import_page():
                                 if str(record.get("固定资产编码", "")).strip() != ""
                             ]
 
-                        save_data(filtered_data, MAPPING_DATA_FILE)
+                        save_data_enhanced(filtered_data, MAPPING_DATA_FILE)
                         deleted_count = original_count - len(filtered_data)
                         st.success(f"✅ 已删除 {deleted_count} 条映射关系")
                         st.rerun()
@@ -1374,7 +1546,7 @@ def data_import_page():
                                     if record.get("固定资产编码", "") not in codes_to_delete
                                 ]
 
-                            save_data(filtered_data, MAPPING_DATA_FILE)
+                            save_data_enhanced(filtered_data, MAPPING_DATA_FILE)
                             deleted_count = original_count - len(filtered_data)
                             st.success(f"✅ 已删除 {deleted_count} 条映射关系")
                             st.rerun()
@@ -1392,7 +1564,7 @@ def data_import_page():
                         )
 
                         if final_confirm == "DELETE ALL" and st.button("🚨 清空所有映射", key="mapping_clear_all"):
-                            save_data([], MAPPING_DATA_FILE)
+                            save_data_enhanced([], MAPPING_DATA_FILE)
                             st.success("✅ 已清空所有映射关系")
                             st.rerun()
 
@@ -1452,7 +1624,7 @@ def data_import_page():
 
                         # 根据导入模式处理数据
                         if import_mode == "覆盖导入（清空原数据）":
-                            save_data(processed_data, MAPPING_DATA_FILE)
+                            save_data_enhanced(processed_data, MAPPING_DATA_FILE)
                             st.success(f"✅ 覆盖导入 {len(processed_data)} 条映射关系")
 
                         elif import_mode == "追加导入（保留原数据）":
@@ -1605,12 +1777,12 @@ def data_import_page():
                             st.success("✅ 已清空财务系统数据")
 
                         if "实物台账数据" in delete_options:
-                            save_data([], PHYSICAL_DATA_FILE)
+                            save_data_enhanced([], PHYSICAL_DATA_FILE)
                             deleted_count += len(physical_data)
                             st.success("✅ 已清空实物台账数据")
 
                         if "映射关系数据" in delete_options:
-                            save_data([], MAPPING_DATA_FILE)
+                            save_data_enhanced([], MAPPING_DATA_FILE)
                             deleted_count += len(mapping_data)
                             st.success("✅ 已清空映射关系数据")
 
@@ -1638,8 +1810,8 @@ def data_import_page():
                 if reset_confirm3 == "RESET ALL DATA" and st.button("💀 完全重置系统", key="system_reset"):
                     # 清空所有数据文件
                     save_data([], FINANCIAL_DATA_FILE)
-                    save_data([], PHYSICAL_DATA_FILE)
-                    save_data([], MAPPING_DATA_FILE)
+                    save_data_enhanced([], PHYSICAL_DATA_FILE)
+                    save_data_enhanced([], MAPPING_DATA_FILE)
 
                     st.success("✅ 系统已完全重置")
                     st.info("🔄 页面将在3秒后刷新...")
