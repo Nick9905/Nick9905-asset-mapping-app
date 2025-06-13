@@ -18,7 +18,7 @@ PHYSICAL_DATA_FILE = "physical_data.json"
 MAPPING_DATA_FILE = "mapping_data.json"
 # 🆕 新增：GitHub 配置（防止数据丢失）
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-GITHUB_REPO = "你的GitHub用户名/你的仓库名"  # 🔧 这里需要改成你的实际仓库
+GITHUB_REPO = "Nick9905/Nick9905-asset-mapping-app"
 GITHUB_BRANCH = "main"
 # 页面配置
 st.set_page_config(
