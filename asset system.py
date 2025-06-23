@@ -112,70 +112,7 @@ def load_data_enhanced(filename):
     except Exception as e:
         st.error(f"加载失败: {str(e)}")
         return []
-def save_data_to_github(data, filename):"保存数据到GitHub仓库"
-    if not GITHUB_TOKEN:
-        return False
-    
-    try:
-        # 清理数据
-        cleaned_data = clean_data_for_json(data)
-        content = json.dumps(cleaned_data, ensure_ascii=False, indent=2)
-        
-        # GitHub API URL
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
-        
-        # 获取文件当前SHA（如果文件存在）
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        
-        # 检查文件是否存在
-        response = requests.get(url, headers=headers)
-        sha = None
-        if response.status_code == 200:
-            sha = response.json().get("sha")
-        
-        # 准备数据
-        data_to_send = {
-            "message": f"Update {filename}",
-            "content": base64.b64encode(content.encode('utf-8')).decode('utf-8'),
-            "branch": GITHUB_BRANCH
-        }
-        
-        if sha:
-            data_to_send["sha"] = sha
-        
-        # 发送请求
-        response = requests.put(url, headers=headers, json=data_to_send)
-        return response.status_code in [200, 201]
-        
-    except Exception as e:
-        st.error(f"GitHub保存失败: {str(e)}")
-        return False
 
-def load_data_from_github(filename):
-    """从GitHub仓库加载数据"""
-    if not GITHUB_TOKEN:
-        return None
-    
-    try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            content = response.json().get("content", "")
-            decoded_content = base64.b64decode(content).decode('utf-8')
-            return json.loads(decoded_content)
-        return None
-        
-    except Exception as e:
-        st.error(f"GitHub加载失败: {str(e)}")
-        return None
 # 数据文件路径
 FINANCIAL_DATA_FILE = "financial_data.json"
 PHYSICAL_DATA_FILE = "physical_data.json"
