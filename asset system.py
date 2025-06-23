@@ -112,8 +112,7 @@ def load_data_enhanced(filename):
     except Exception as e:
         st.error(f"加载失败: {str(e)}")
         return []
-def save_data_to_github(data, filename):
-    """保存数据到GitHub仓库"""
+def save_data_to_github(data, filename):"""保存数据到GitHub仓库"""
     if not GITHUB_TOKEN:
         return False
     
