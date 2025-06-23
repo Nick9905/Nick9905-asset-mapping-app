@@ -1361,39 +1361,39 @@ def data_import_page()
                             physical_df.to_excel(writer, index=False, sheet_name='实物数据')
 
                         st.download_button(
-                            label=⬇️ 下载Excel文件,  
+                            label=⬇️ 下载Excel文件,  
                             data=output.getvalue(),
                             file_name=f实物数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx,
                             mime=applicationvnd.openxmlformats-officedocument.spreadsheetml.sheet
                         )
 
-                with col3  
+                with col3  
                     if st.button(🔄 重新上传, use_container_width=True)
-                        st.rerun()  
+                        st.rerun()  
 
             except Exception as e
                 st.error(f❌ 文件读取失败：{str(e)})
 
-    with tab3  
+    with tab3  
         st.subheader(🔗 映射关系数据)
         st.markdown(映射规则：建立财务系统'资产编号+序号' ↔ 实物台账'固定资产编码'的对应关系)
 
         # 显示当前映射数据
         current_mapping = load_data_enhanced(MAPPING_DATA_FILE)
-        if current_mapping  
+        if current_mapping  
             st.success(f✅ 当前已有 {len(current_mapping)} 条映射关系)
 
             with st.expander(📊 查看当前所有映射关系, expanded=False)
                 df_mapping = pd.DataFrame(current_mapping)
 
                 search_mapping = st.text_input(🔍 搜索映射关系, key=search_mapping_current)
-                if search_mapping  
+                if search_mapping  
                     mask = df_mapping.astype(str).apply(
                         lambda x x.str.contains(search_mapping, case=False, na=False)).any(axis=1)
                     df_filtered = df_mapping[mask]
                     st.write(f搜索结果：{len(df_filtered)} 条记录)
                     st.dataframe(df_filtered, use_container_width=True, height=400)
-                else  
+                else  
                     st.dataframe(df_mapping, use_container_width=True, height=400)
 
             # 🗑️ 映射关系删除功能
