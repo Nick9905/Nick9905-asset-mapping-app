@@ -1,4 +1,4 @@
-import warnings  
+import warnings
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 import streamlit as st
 import pandas as pd
