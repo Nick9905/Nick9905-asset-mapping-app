@@ -95,57 +95,196 @@ def save_data_to_github(data, filename):
         return False
 
 def load_data_from_github(filename):
-    """从GitHub加载数据 - 增强调试版本"""
+    """增强版GitHub数据加载"""
     if not GITHUB_AVAILABLE:
-        st.sidebar.error("❌ GitHub库不可用")
         return []
         
     try:
         config = get_github_config()
         if not config:
-            st.sidebar.error("❌ GitHub配置未找到")
             return []
             
-        st.sidebar.info(f"🔍 尝试连接GitHub仓库: {config['repo']}")
-        
         g = Github(config["token"])
-        
-        # 测试GitHub连接
-        try:
-            repo = g.get_repo(config["repo"])
-            st.sidebar.success(f"✅ 成功连接到仓库: {repo.name}")
-        except Exception as repo_error:
-            st.sidebar.error(f"❌ 仓库连接失败: {str(repo_error)}")
-            return []
+        repo = g.get_repo(config["repo"])
         
         file_path = f"data/{filename}"
-        st.sidebar.info(f"🔍 查找文件: {file_path}")
         
         try:
-            # 先检查文件是否存在
-            contents = repo.get_contents("data")
-            file_list = [item.name for item in contents if item.type == "file"]
-            st.sidebar.info(f"📁 data文件夹内容: {file_list}")
+            file = repo.get_contents(file_path)
+            raw_content = base64.b64decode(file.content)
             
-            if filename not in file_list:
-                st.sidebar.error(f"❌ 文件不存在: {filename}")
+            # 检查文件是否为空
+            if len(raw_content) == 0:
+                st.sidebar.warning(f"⚠️ {filename} 文件为空")
                 return []
             
-            # 获取文件内容
-            file = repo.get_contents(file_path)
-            content = base64.b64decode(file.content).decode('utf-8')
-            data = json.loads(content)
+            # 尝试不同编码解码
+            content = None
+            for encoding in ['utf-8', 'utf-8-sig', 'gbk', 'gb2312']:
+                try:
+                    content = raw_content.decode(encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
             
-            st.sidebar.success(f"✅ 成功加载: {filename} ({len(data)} 条记录)")
-            return data
+            if content is None:
+                st.sidebar.error(f"❌ {filename} 编码解析失败")
+                return []
             
+            # 清理内容（移除BOM和空白字符）
+            content = content.strip()
+            if content.startswith('\ufeff'):  # 移除BOM
+                content = content[1:]
+            
+            # 检查是否为空内容
+            if not content:
+                st.sidebar.warning(f"⚠️ {filename} 内容为空")
+                return []
+            
+            # 尝试解析JSON
+            try:
+                data = json.loads(content)
+                if isinstance(data, list):
+                    st.sidebar.success(f"✅ {filename} 加载成功: {len(data)} 条记录")
+                    return data
+                else:
+                    st.sidebar.error(f"❌ {filename} 不是数组格式")
+                    return []
+            except json.JSONDecodeError as json_error:
+                st.sidebar.error(f"❌ {filename} JSON解析失败: {str(json_error)}")
+                st.sidebar.write(f"内容预览: {repr(content[:200])}")
+                return []
+                
         except Exception as file_error:
-            st.sidebar.error(f"❌ 文件读取失败: {filename} - {str(file_error)}")
+            st.sidebar.error(f"❌ {filename} 文件访问失败: {str(file_error)}")
             return []
             
     except Exception as e:
-        st.sidebar.error(f"❌ GitHub API错误: {str(e)}")
+        st.sidebar.error(f"❌ GitHub连接失败: {str(e)}")
         return []
+def debug_github_file_content(filename):
+    """调试GitHub文件内容"""
+    try:
+        config = get_github_config()
+        if not config:
+            return None
+            
+        g = Github(config["token"])
+        repo = g.get_repo(config["repo"])
+        
+        file_path = f"data/{filename}"
+        file = repo.get_contents(file_path)
+        
+        # 获取原始内容
+        raw_content = base64.b64decode(file.content)
+        
+        st.sidebar.write(f"📄 {filename} 文件信息:")
+        st.sidebar.write(f"- 文件大小: {len(raw_content)} 字节")
+        st.sidebar.write(f"- 编码检测: {raw_content[:100]}")
+        
+        # 尝试不同编码
+        try:
+            content_utf8 = raw_content.decode('utf-8')
+            st.sidebar.write(f"- UTF-8解码长度: {len(content_utf8)}")
+            st.sidebar.write(f"- 前100字符: {repr(content_utf8[:100])}")
+            return content_utf8
+        except UnicodeDecodeError:
+            st.sidebar.error("❌ UTF-8解码失败")
+            try:
+                content_gbk = raw_content.decode('gbk')
+                st.sidebar.write(f"- GBK解码成功，长度: {len(content_gbk)}")
+                return content_gbk
+            except:
+                st.sidebar.error("❌ 多种编码尝试失败")
+                return None
+                
+    except Exception as e:
+        st.sidebar.error(f"❌ 文件内容检查失败: {str(e)}")
+        return None
+
+def create_sample_data_files():
+    """创建示例数据文件"""
+    st.sidebar.markdown("### 🔧 数据文件修复")
+    
+    if st.sidebar.button("🔍 检查文件内容", key="debug_files"):
+        st.sidebar.write("**财务数据文件检查:**")
+        debug_github_file_content("financial_data.json")
+        
+        st.sidebar.write("**实物数据文件检查:**")
+        debug_github_file_content("physical_data.json")
+    
+    if st.sidebar.button("📝 创建示例数据", key="create_sample"):
+        # 示例财务数据
+        sample_financial = [
+            {
+                "资产编号": "FA001",
+                "资产名称": "办公桌",
+                "资产类别": "办公设备",
+                "购置日期": "2023-01-15",
+                "原值": 1200.00,
+                "累计折旧": 100.00,
+                "净值": 1100.00,
+                "使用部门": "行政部",
+                "资产状态": "在用"
+            },
+            {
+                "资产编号": "FA002", 
+                "资产名称": "笔记本电脑",
+                "资产类别": "电子设备",
+                "购置日期": "2023-02-20",
+                "原值": 5500.00,
+                "累计折旧": 458.33,
+                "净值": 5041.67,
+                "使用部门": "技术部",
+                "资产状态": "在用"
+            }
+        ]
+        
+        # 示例实物数据
+        sample_physical = [
+            {
+                "实物编号": "PA001",
+                "实物名称": "办公桌",
+                "规格型号": "1.2m*0.6m",
+                "存放位置": "办公室101",
+                "责任人": "张三",
+                "盘点日期": "2023-12-01",
+                "实物状态": "正常",
+                "备注": "状态良好"
+            },
+            {
+                "实物编号": "PA002",
+                "实物名称": "笔记本电脑", 
+                "规格型号": "ThinkPad E14",
+                "存放位置": "技术部",
+                "责任人": "李四",
+                "盘点日期": "2023-12-01", 
+                "实物状态": "正常",
+                "备注": "运行正常"
+            }
+        ]
+        
+        # 提供下载链接
+        financial_json = json.dumps(sample_financial, ensure_ascii=False, indent=2)
+        physical_json = json.dumps(sample_physical, ensure_ascii=False, indent=2)
+        
+        st.sidebar.download_button(
+            "📥 下载财务数据模板",
+            financial_json,
+            "financial_data.json",
+            "application/json",
+            key="download_financial"
+        )
+        
+        st.sidebar.download_button(
+            "📥 下载实物数据模板", 
+            physical_json,
+            "physical_data.json",
+            "application/json",
+            key="download_physical"
+        )
+        
+        st.sidebar.success("✅ 示例数据已生成，请下载并上传到GitHub")
 # ========== 配置和常量 ==========
 
 # 数据文件路径
