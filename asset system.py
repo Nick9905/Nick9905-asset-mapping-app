@@ -93,8 +93,8 @@ def save_data_to_github(data, filename):
         st.error(f"❌ GitHub保存失败: {str(e)}")
         return False
 
-def load_data_from_github(filename):
-    """增强版GitHub数据加载"""
+def load_data_from_github_enhanced(filename):
+    """增强版GitHub数据加载 - 解决文件为空问题"""
     if not GITHUB_AVAILABLE:
         return []
         
@@ -109,53 +109,98 @@ def load_data_from_github(filename):
         file_path = f"data/{filename}"
         
         try:
+            # 方法1: 使用GitHub API获取文件
             file = repo.get_contents(file_path)
-            raw_content = base64.b64decode(file.content)
             
-            # 检查文件是否为空
-            if len(raw_content) == 0:
-                st.sidebar.warning(f"⚠️ {filename} 文件为空")
+            # 检查文件大小
+            if file.size == 0:
+                st.sidebar.warning(f"⚠️ {filename} 文件大小为0字节")
                 return []
             
-            # 尝试不同编码解码
-            content = None
-            for encoding in ['utf-8', 'utf-8-sig', 'gbk', 'gb2312']:
+            # 获取原始内容
+            if hasattr(file, 'content') and file.content:
                 try:
-                    content = raw_content.decode(encoding)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if content is None:
-                st.sidebar.error(f"❌ {filename} 编码解析失败")
-                return []
-            
-            # 清理内容（移除BOM和空白字符）
-            content = content.strip()
-            if content.startswith('\ufeff'):  # 移除BOM
-                content = content[1:]
-            
-            # 检查是否为空内容
-            if not content:
-                st.sidebar.warning(f"⚠️ {filename} 内容为空")
-                return []
-            
-            # 尝试解析JSON
-            try:
-                data = json.loads(content)
-                if isinstance(data, list):
-                    st.sidebar.success(f"✅ {filename} 加载成功: {len(data)} 条记录")
-                    return data
-                else:
-                    st.sidebar.error(f"❌ {filename} 不是数组格式")
+                    # 尝试直接解码
+                    raw_content = base64.b64decode(file.content)
+                    
+                    # 多编码尝试
+                    content = None
+                    encodings = ['utf-8', 'utf-8-sig', 'gbk', 'gb2312', 'latin1']
+                    
+                    for encoding in encodings:
+                        try:
+                            content = raw_content.decode(encoding)
+                            st.sidebar.info(f"✅ 使用 {encoding} 编码成功解析")
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    
+                    if not content:
+                        st.sidebar.error(f"❌ 所有编码尝试失败")
+                        return []
+                    
+                    # 清理BOM和空白字符
+                    content = content.strip()
+                    if content.startswith('\ufeff'):
+                        content = content[1:]
+                    
+                    # JSON解析
+                    if content:
+                        data = json.loads(content)
+                        if isinstance(data, list):
+                            st.sidebar.success(f"✅ {filename}: {len(data)} 条记录")
+                            return data
+                        else:
+                            st.sidebar.error(f"❌ {filename} 格式错误，需要数组格式")
+                            return []
+                    else:
+                        st.sidebar.warning(f"⚠️ {filename} 内容为空")
+                        return []
+                        
+                except Exception as decode_error:
+                    st.sidebar.error(f"❌ Base64解码失败: {str(decode_error)}")
+                    
+                    # 方法2: 尝试使用download_url
+                    try:
+                        if hasattr(file, 'download_url') and file.download_url:
+                            import requests
+                            response = requests.get(file.download_url)
+                            if response.status_code == 200:
+                                content = response.text
+                                data = json.loads(content)
+                                st.sidebar.success(f"✅ 通过download_url加载: {len(data)} 条")
+                                return data
+                    except Exception as url_error:
+                        st.sidebar.error(f"❌ download_url方法失败: {str(url_error)}")
+                    
                     return []
-            except json.JSONDecodeError as json_error:
-                st.sidebar.error(f"❌ {filename} JSON解析失败: {str(json_error)}")
-                st.sidebar.write(f"内容预览: {repr(content[:200])}")
+            else:
+                st.sidebar.error(f"❌ {filename} 无内容属性")
                 return []
                 
         except Exception as file_error:
-            st.sidebar.error(f"❌ {filename} 文件访问失败: {str(file_error)}")
+            st.sidebar.error(f"❌ 文件访问失败: {str(file_error)}")
+            
+            # 方法3: 尝试直接API调用
+            try:
+                import requests
+                api_url = f"https://api.github.com/repos/{config['repo']}/contents/data/{filename}"
+                headers = {"Authorization": f"token {config['token']}"}
+                
+                response = requests.get(api_url, headers=headers)
+                if response.status_code == 200:
+                    file_data = response.json()
+                    if 'content' in file_data:
+                        raw_content = base64.b64decode(file_data['content'])
+                        content = raw_content.decode('utf-8')
+                        data = json.loads(content)
+                        st.sidebar.success(f"✅ 直接API调用成功: {len(data)} 条")
+                        return data
+                else:
+                    st.sidebar.error(f"❌ API调用失败: {response.status_code}")
+            except Exception as api_error:
+                st.sidebar.error(f"❌ 直接API调用失败: {str(api_error)}")
+            
             return []
             
     except Exception as e:
