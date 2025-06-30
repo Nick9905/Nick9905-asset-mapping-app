@@ -1,4 +1,4 @@
-import warnings
+import warnings  
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 import streamlit as st
 import pandas as pd
@@ -9,7 +9,7 @@ import io
 import numpy as np
 import re
 import plotly
-
+import base64
 # 添加GitHub存储支持 - 修复GITHUB_AVAILABLE变量定义
 GITHUB_AVAILABLE = False
 try:
@@ -4838,6 +4838,44 @@ def main():
                 st.error(f"❌ GitHub连接失败: {str(e)}")
         else:
             st.error("❌ GitHub配置未找到")
+ if GITHUB_AVAILABLE and get_github_config():
+    st.sidebar.markdown("---")
+    
+    # 添加文件修复功能
+    create_sample_data_files()
+    
+    # 添加修复指南
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🚨 文件修复指南")
+    st.sidebar.info("""
+    **当前问题**: JSON文件为空或格式错误
+
+    **解决步骤**:
+    1. 点击"检查文件内容"查看详情
+    2. 点击"创建示例数据"生成模板
+    3. 下载模板文件
+    4. 上传到GitHub的data文件夹
+    5. 确保文件编码为UTF-8
+    """)
+    
+    # 添加验证按钮
+    if st.sidebar.button("🔧 验证修复", key="verify_fix"):
+        st.sidebar.write("**验证结果:**")
+        
+        # 测试财务数据
+        financial_data = load_data_from_github("financial_data.json")
+        if financial_data:
+            st.sidebar.success(f"✅ 财务数据: {len(financial_data)} 条")
+        else:
+            st.sidebar.error("❌ 财务数据仍有问题")
+        
+        # 测试实物数据  
+        physical_data = load_data_from_github("physical_data.json")
+        if physical_data:
+            st.sidebar.success(f"✅ 实物数据: {len(physical_data)} 条")
+        else:
+            st.sidebar.error("❌ 实物数据仍有问题")
+   
     # 根据选择显示对应页面
     if page == "📥 数据导入":
         data_import_page()
