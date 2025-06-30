@@ -9,7 +9,6 @@ import io
 import numpy as np
 import re
 import plotly
-import base64
 # 添加GitHub存储支持 - 修复GITHUB_AVAILABLE变量定义
 GITHUB_AVAILABLE = False
 try:
