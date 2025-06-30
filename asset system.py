@@ -1,3 +1,4 @@
+复制
 import warnings
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 import streamlit as st
@@ -9,10 +10,25 @@ import io
 import numpy as np
 import re
 import plotly
-# 添加GitHub存储支持
-from github import Github
-import base64
-import requests
+
+# 添加GitHub存储支持 - 修复GITHUB_AVAILABLE变量定义
+GITHUB_AVAILABLE = False
+try:
+    from github import Github
+    import base64
+    import requests
+    GITHUB_AVAILABLE = True
+    print("✅ GitHub库导入成功")
+except ImportError as e:
+    print(f"⚠️ GitHub库导入失败: {e}")
+    GITHUB_AVAILABLE = False
+except Exception as e:
+    print(f"⚠️ GitHub库导入异常: {e}")
+    GITHUB_AVAILABLE = False
+
+# 显示GitHub可用状态（调试用）
+if not GITHUB_AVAILABLE:
+    st.sidebar.warning("⚠️ GitHub功能不可用，使用本地存储")
 
 # GitHub数据存储函数
 def get_github_config():
