@@ -95,35 +95,56 @@ def save_data_to_github(data, filename):
         return False
 
 def load_data_from_github(filename):
-    """从GitHub加载数据"""
+    """从GitHub加载数据 - 增强调试版本"""
     if not GITHUB_AVAILABLE:
+        st.sidebar.error("❌ GitHub库不可用")
         return []
         
     try:
         config = get_github_config()
         if not config:
+            st.sidebar.error("❌ GitHub配置未找到")
             return []
             
+        st.sidebar.info(f"🔍 尝试连接GitHub仓库: {config['repo']}")
+        
         g = Github(config["token"])
-        repo = g.get_repo(config["repo"])
+        
+        # 测试GitHub连接
+        try:
+            repo = g.get_repo(config["repo"])
+            st.sidebar.success(f"✅ 成功连接到仓库: {repo.name}")
+        except Exception as repo_error:
+            st.sidebar.error(f"❌ 仓库连接失败: {str(repo_error)}")
+            return []
         
         file_path = f"data/{filename}"
+        st.sidebar.info(f"🔍 查找文件: {file_path}")
         
         try:
+            # 先检查文件是否存在
+            contents = repo.get_contents("data")
+            file_list = [item.name for item in contents if item.type == "file"]
+            st.sidebar.info(f"📁 data文件夹内容: {file_list}")
+            
+            if filename not in file_list:
+                st.sidebar.error(f"❌ 文件不存在: {filename}")
+                return []
+            
+            # 获取文件内容
             file = repo.get_contents(file_path)
             content = base64.b64decode(file.content).decode('utf-8')
             data = json.loads(content)
-            # 只在调试时显示加载信息，不在主界面显示
-            print(f"✅ 从GitHub成功加载: {filename} ({len(data)} 条记录)")
+            
+            st.sidebar.success(f"✅ 成功加载: {filename} ({len(data)} 条记录)")
             return data
+            
         except Exception as file_error:
-            # 文件不存在或其他错误，静默处理
-            print(f"⚠️ GitHub文件加载失败: {filename} - {str(file_error)}")
+            st.sidebar.error(f"❌ 文件读取失败: {filename} - {str(file_error)}")
             return []
             
     except Exception as e:
-        # GitHub连接错误，静默处理
-        print(f"⚠️ GitHub连接失败: {str(e)}")
+        st.sidebar.error(f"❌ GitHub API错误: {str(e)}")
         return []
 # ========== 配置和常量 ==========
 
@@ -4651,30 +4672,33 @@ def main():
 
         # ✅ 修复：只显示一次数据状态，并且静默加载
         st.markdown("---")
-        st.markdown("### 📊 数据状态")
-        
-        # 静默加载数据，不显示加载提示
-        try:
-            financial_count = len(load_data(FINANCIAL_DATA_FILE))
-            physical_count = len(load_data(PHYSICAL_DATA_FILE))
-            mapping_count = len(load_data(MAPPING_DATA_FILE))
-        except:
-            financial_count = 0
-            physical_count = 0
-            mapping_count = 0
-
-        # 使用更简洁的显示方式
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("💰 财务", f"{financial_count}")
-            st.metric("🔗 映射", f"{mapping_count}")
-        with col2:
-            st.metric("📦 实物", f"{physical_count}")
-            # 计算匹配率
-            if financial_count > 0 and mapping_count > 0:
-                match_rate = min(100, (mapping_count / financial_count) * 100)
-                st.metric("📊 匹配率", f"{match_rate:.0f}%")
-
+    st.markdown("### 🔧 GitHub配置检查")
+    
+    if st.button("🔍 检查GitHub配置", key="check_github"):
+        config = get_github_config()
+        if config:
+            st.success("✅ GitHub配置已找到")
+            st.write(f"仓库: {config['repo']}")
+            st.write(f"Token: {'*' * (len(config['token']) - 4) + config['token'][-4:]}")
+            
+            # 测试GitHub连接
+            try:
+                g = Github(config["token"])
+                repo = g.get_repo(config["repo"])
+                st.success(f"✅ 仓库连接成功: {repo.full_name}")
+                
+                # 检查data文件夹
+                try:
+                    contents = repo.get_contents("data")
+                    files = [item.name for item in contents if item.type == "file"]
+                    st.write(f"📁 data文件夹文件: {files}")
+                except Exception as e:
+                    st.error(f"❌ data文件夹访问失败: {str(e)}")
+                    
+            except Exception as e:
+                st.error(f"❌ GitHub连接失败: {str(e)}")
+        else:
+            st.error("❌ GitHub配置未找到")
     # 根据选择显示对应页面
     if page == "📥 数据导入":
         data_import_page()
