@@ -33,13 +33,18 @@ if not GITHUB_AVAILABLE:
 def get_github_config():
     """获取GitHub配置"""
     try:
-        if "github" in st.secrets:
-            return {
+        # 检查Streamlit secrets
+        if hasattr(st, 'secrets') and "github" in st.secrets:
+            config = {
                 "token": st.secrets["github"]["token"],
                 "repo": st.secrets["github"]["repo"]
             }
+            # 验证配置完整性
+            if config["token"] and config["repo"]:
+                return config
         return None
-    except:
+    except Exception as e:
+        print(f"GitHub配置读取失败: {str(e)}")
         return None
 
 def save_data_to_github(data, filename):
@@ -108,14 +113,17 @@ def load_data_from_github(filename):
             file = repo.get_contents(file_path)
             content = base64.b64decode(file.content).decode('utf-8')
             data = json.loads(content)
-            st.info(f"📥 从GitHub加载数据: {filename} ({len(data)} 条记录)")
+            # 只在调试时显示加载信息，不在主界面显示
+            print(f"✅ 从GitHub成功加载: {filename} ({len(data)} 条记录)")
             return data
-        except:
-            st.info(f"📝 GitHub中暂无数据文件: {filename}")
+        except Exception as file_error:
+            # 文件不存在或其他错误，静默处理
+            print(f"⚠️ GitHub文件加载失败: {filename} - {str(file_error)}")
             return []
             
     except Exception as e:
-        st.warning(f"⚠️ GitHub加载失败，使用本地数据: {str(e)}")
+        # GitHub连接错误，静默处理
+        print(f"⚠️ GitHub连接失败: {str(e)}")
         return []
 # ========== 配置和常量 ==========
 
@@ -4591,92 +4599,91 @@ def all_data_view_page():
 
 
 def main():
-  """主函数"""
-  st.title("🔗 资产映射关系查询")
+    """主函数"""
+    st.title("🔗 资产映射关系查询")
 
-  # 侧边栏导航
-  with st.sidebar:
-      st.header("📋 系统导航")
+    # 侧边栏导航
+    with st.sidebar:
+        st.header("📋 系统导航")
 
-      # 初始化 session state
-      if 'current_page' not in st.session_state:
-          st.session_state.current_page = "📥 数据导入"
+        # 初始化 session state
+        if 'current_page' not in st.session_state:
+            st.session_state.current_page = "📥 数据导入"
 
-      # 创建垂直导航按钮
-      st.markdown("### 🔧 功能模块")
+        # 创建垂直导航按钮
+        st.markdown("### 🔧 功能模块")
 
-      if st.button("📥 数据导入",
-                   type="primary" if st.session_state.current_page == "📥 数据导入" else "secondary",
-                   use_container_width=True, key="nav_import"):
-          st.session_state.current_page = "📥 数据导入"
-          st.rerun()
+        if st.button("📥 数据导入",
+                     type="primary" if st.session_state.current_page == "📥 数据导入" else "secondary",
+                     use_container_width=True, key="nav_import"):
+            st.session_state.current_page = "📥 数据导入"
+            st.rerun()
 
-      if st.button("🔍 映射查询",
-                   type="primary" if st.session_state.current_page == "🔍 映射查询" else "secondary",
-                   use_container_width=True, key="nav_query"):
-          st.session_state.current_page = "🔍 映射查询"
-          st.rerun()
+        if st.button("🔍 映射查询",
+                     type="primary" if st.session_state.current_page == "🔍 映射查询" else "secondary",
+                     use_container_width=True, key="nav_query"):
+            st.session_state.current_page = "🔍 映射查询"
+            st.rerun()
 
-      if st.button("📊 数据统计",
-                   type="primary" if st.session_state.current_page == "📊 数据统计" else "secondary",
-                   use_container_width=True, key="nav_stats"):
-          st.session_state.current_page = "📊 数据统计"
-          st.rerun()
+        if st.button("📊 数据统计",
+                     type="primary" if st.session_state.current_page == "📊 数据统计" else "secondary",
+                     use_container_width=True, key="nav_stats"):
+            st.session_state.current_page = "📊 数据统计"
+            st.rerun()
 
-      if st.button("📋 全部数据",
-                   type="primary" if st.session_state.current_page == "📋 全部数据" else "secondary",
-                   use_container_width=True, key="nav_all"):
-          st.session_state.current_page = "📋 全部数据"
-          st.rerun()
+        if st.button("📋 全部数据",
+                     type="primary" if st.session_state.current_page == "📋 全部数据" else "secondary",
+                     use_container_width=True, key="nav_all"):
+            st.session_state.current_page = "📋 全部数据"
+            st.rerun()
 
-      # 获取当前页面
-      page = st.session_state.current_page
+        # 获取当前页面
+        page = st.session_state.current_page
 
-      st.markdown("---")
-      st.markdown("### 📝 使用说明")
-      st.markdown("""
+        st.markdown("---")
+        st.markdown("### 📝 使用说明")
+        st.markdown("""
         1. **数据导入**：上传Excel文件导入数据
         2. **映射查询**：查询资产对应关系
         3. **数据统计**：查看统计分析结果
         4. **全部数据**：浏览所有数据记录
         """)
 
-      # 显示数据状态
-      st.markdown("---")
-      st.markdown("### 📊 数据状态")
-      financial_count = len(load_data(FINANCIAL_DATA_FILE))
-      physical_count = len(load_data(PHYSICAL_DATA_FILE))
-      mapping_count = len(load_data(MAPPING_DATA_FILE))
+        # ✅ 修复：只显示一次数据状态，并且静默加载
+        st.markdown("---")
+        st.markdown("### 📊 数据状态")
+        
+        # 静默加载数据，不显示加载提示
+        try:
+            financial_count = len(load_data(FINANCIAL_DATA_FILE))
+            physical_count = len(load_data(PHYSICAL_DATA_FILE))
+            mapping_count = len(load_data(MAPPING_DATA_FILE))
+        except:
+            financial_count = 0
+            physical_count = 0
+            mapping_count = 0
 
-      st.info(f"""
-        - 财务资产：{financial_count} 条
-        - 实物资产：{physical_count} 条
-        - 映射关系：{mapping_count} 条
-        """)
+        # 使用更简洁的显示方式
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("💰 财务", f"{financial_count}")
+            st.metric("🔗 映射", f"{mapping_count}")
+        with col2:
+            st.metric("📦 实物", f"{physical_count}")
+            # 计算匹配率
+            if financial_count > 0 and mapping_count > 0:
+                match_rate = min(100, (mapping_count / financial_count) * 100)
+                st.metric("📊 匹配率", f"{match_rate:.0f}%")
 
-      # 显示数据状态
-      st.markdown("---")
-      st.markdown("### 📊 数据状态")
-      financial_count = len(load_data(FINANCIAL_DATA_FILE))
-      physical_count = len(load_data(PHYSICAL_DATA_FILE))
-      mapping_count = len(load_data(MAPPING_DATA_FILE))
-
-      st.info(f"""
-          - 财务资产：{financial_count} 条
-          - 实物资产：{physical_count} 条
-          - 映射关系：{mapping_count} 条
-          """)
-
-  # 根据选择显示对应页面
-  if page == "📥 数据导入":
-      data_import_page()
-  elif page == "🔍 映射查询":
-      mapping_query_page()
-  elif page == "📊 数据统计":
-      data_statistics_page()
-  elif page == "📋 全部数据":
-      all_data_view_page()
-
+    # 根据选择显示对应页面
+    if page == "📥 数据导入":
+        data_import_page()
+    elif page == "🔍 映射查询":
+        mapping_query_page()
+    elif page == "📊 数据统计":
+        data_statistics_page()
+    elif page == "📋 全部数据":
+        all_data_view_page()
 
 # ========== 程序入口 ==========
 if __name__ == "__main__":
