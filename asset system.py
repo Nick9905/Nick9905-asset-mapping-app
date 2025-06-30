@@ -27,47 +27,28 @@ def get_github_config():
     except:
         return None
 
-def save_data_to_github(data, filename):
-    """保存数据到GitHub"""
-    try:
-        config = get_github_config()
-        if not config:
-            return False
-            
-        g = Github(config["token"])
-        repo = g.get_repo(config["repo"])
-        
-        # 清理数据
-        cleaned_data = clean_data_for_json(data)
-        content = json.dumps(cleaned_data, ensure_ascii=False, indent=2)
-        
-        # 文件路径
-        file_path = f"data/{filename}"
-        
+def save_data(data, filename):
+    """保存数据 - 优先GitHub存储"""
+    # 先尝试GitHub存储
+    if save_data_to_github(data, filename):
+        # GitHub保存成功，同时保存本地备份
         try:
-            # 尝试获取现有文件
-            file = repo.get_contents(file_path)
-            # 更新文件
-            repo.update_file(
-                file_path,
-                f"Update {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                content,
-                file.sha
-            )
-            st.success(f"✅ 数据已保存到GitHub: {filename}")
+            cleaned_data = clean_data_for_json(data)
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
         except:
-            # 文件不存在，创建新文件
-            repo.create_file(
-                file_path,
-                f"Create {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                content
-            )
-            st.success(f"✅ 数据已创建到GitHub: {filename}")
-        
+            pass  # 本地备份失败不影响主流程
         return True
-        
+    
+    # GitHub失败，尝试本地存储
+    try:
+        cleaned_data = clean_data_for_json(data)
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
+        st.warning("⚠️ 数据已保存到本地（GitHub不可用）")
+        return True
     except Exception as e:
-        st.error(f"❌ GitHub保存失败: {str(e)}")
+        st.error(f"❌ 保存失败: {str(e)}")
         return False
 
 def load_data_from_github(filename):
@@ -194,33 +175,23 @@ def clean_data_for_json(data):
 
 
 def load_data(filename):
-    """从JSON文件加载数据"""
+    """加载数据 - 优先GitHub存储"""
+    # 先尝试从GitHub加载
+    github_data = load_data_from_github(filename)
+    if github_data:
+        return github_data
+    
+    # GitHub失败，尝试本地加载
     try:
         if os.path.exists(filename):
             with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                # 检查文件是否为空或只包含空白字符
-                if not content:
-                    return []
-                # 尝试解析JSON
-                try:
-                    return json.load(open(filename, 'r', encoding='utf-8'))
-                except json.JSONDecodeError as json_err:
-                    st.error(f"❌ JSON文件格式错误 ({filename}): {str(json_err)}")
-                    st.warning(f"💡 建议：删除损坏的 {filename} 文件，重新导入数据")
-                    # 可选：自动备份损坏的文件并创建新的空文件
-                    backup_name = f"{filename}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    try:
-                        os.rename(filename, backup_name)
-                        st.info(f"📁 已将损坏文件备份为: {backup_name}")
-                        return []
-                    except:
-                        return []
+                data = json.load(f)
+                st.info(f"📁 从本地加载数据: {filename} ({len(data)} 条记录)")
+                return data
         return []
     except Exception as e:
-        st.error(f"❌ 加载数据失败 ({filename}): {str(e)}")
+        st.error(f"❌ 加载数据失败: {str(e)}")
         return []
-
 
 def parse_excel_file(uploaded_file, sheet_name=None):
     """解析Excel文件"""
