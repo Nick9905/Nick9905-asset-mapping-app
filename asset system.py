@@ -93,7 +93,7 @@ def save_data_to_github(data, filename):
         st.error(f"❌ GitHub保存失败: {str(e)}")
         return False
 
-def load_data_from_github_enhanced(filename):
+def load_data_from_github(filename):
     """增强版GitHub数据加载 - 解决文件为空问题"""
     if not GITHUB_AVAILABLE:
         return []
