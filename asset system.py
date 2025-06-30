@@ -27,32 +27,58 @@ def get_github_config():
     except:
         return None
 
-def save_data(data, filename):
-    """保存数据 - 优先GitHub存储"""
-    # 先尝试GitHub存储
-    if save_data_to_github(data, filename):
-        # GitHub保存成功，同时保存本地备份
-        try:
-            cleaned_data = clean_data_for_json(data)
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
-        except:
-            pass  # 本地备份失败不影响主流程
-        return True
-    
-    # GitHub失败，尝试本地存储
+def save_data_to_github(data, filename):
+    """保存数据到GitHub"""
+    if not GITHUB_AVAILABLE:
+        return False
+        
     try:
+        config = get_github_config()
+        if not config:
+            st.warning("⚠️ GitHub配置未找到")
+            return False
+            
+        g = Github(config["token"])
+        repo = g.get_repo(config["repo"])
+        
+        # 清理数据
         cleaned_data = clean_data_for_json(data)
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
-        st.warning("⚠️ 数据已保存到本地（GitHub不可用）")
+        content = json.dumps(cleaned_data, ensure_ascii=False, indent=2)
+        
+        # 文件路径
+        file_path = f"data/{filename}"
+        
+        try:
+            # 尝试获取现有文件
+            file = repo.get_contents(file_path)
+            # 更新文件
+            repo.update_file(
+                file_path,
+                f"Update {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                content,
+                file.sha
+            )
+            st.success(f"✅ 数据已保存到GitHub: {filename}")
+        except:
+            # 文件不存在，创建新文件
+            repo.create_file(
+                file_path,
+                f"Create {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                content
+            )
+            st.success(f"✅ 数据已创建到GitHub: {filename}")
+        
         return True
+        
     except Exception as e:
-        st.error(f"❌ 保存失败: {str(e)}")
+        st.error(f"❌ GitHub保存失败: {str(e)}")
         return False
 
 def load_data_from_github(filename):
     """从GitHub加载数据"""
+    if not GITHUB_AVAILABLE:
+        return []
+        
     try:
         config = get_github_config()
         if not config:
@@ -172,7 +198,29 @@ def clean_data_for_json(data):
     except Exception as e:
         st.error(f"❌ 保存数据失败 ({filename}): {str(e)}")
         return False
-
+def save_data(data, filename):
+    """保存数据 - 优先GitHub存储"""
+    # 先尝试GitHub存储
+    if save_data_to_github(data, filename):
+        # GitHub保存成功，同时保存本地备份
+        try:
+            cleaned_data = clean_data_for_json(data)
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
+        except:
+            pass  # 本地备份失败不影响主流程
+        return True
+    
+    # GitHub失败，尝试本地存储
+    try:
+        cleaned_data = clean_data_for_json(data)
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
+        st.warning("⚠️ 数据已保存到本地（GitHub不可用）")
+        return True
+    except Exception as e:
+        st.error(f"❌ 保存失败: {str(e)}")
+        return False
 
 def load_data(filename):
     """加载数据 - 优先GitHub存储"""
