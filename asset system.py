@@ -9,7 +9,92 @@ import io
 import numpy as np
 import re
 import plotly
+# 添加GitHub存储支持
+from github import Github
+import base64
+import requests
 
+# GitHub数据存储函数
+def get_github_config():
+    """获取GitHub配置"""
+    try:
+        if "github" in st.secrets:
+            return {
+                "token": st.secrets["github"]["token"],
+                "repo": st.secrets["github"]["repo"]
+            }
+        return None
+    except:
+        return None
+
+def save_data_to_github(data, filename):
+    """保存数据到GitHub"""
+    try:
+        config = get_github_config()
+        if not config:
+            return False
+            
+        g = Github(config["token"])
+        repo = g.get_repo(config["repo"])
+        
+        # 清理数据
+        cleaned_data = clean_data_for_json(data)
+        content = json.dumps(cleaned_data, ensure_ascii=False, indent=2)
+        
+        # 文件路径
+        file_path = f"data/{filename}"
+        
+        try:
+            # 尝试获取现有文件
+            file = repo.get_contents(file_path)
+            # 更新文件
+            repo.update_file(
+                file_path,
+                f"Update {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                content,
+                file.sha
+            )
+            st.success(f"✅ 数据已保存到GitHub: {filename}")
+        except:
+            # 文件不存在，创建新文件
+            repo.create_file(
+                file_path,
+                f"Create {filename} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                content
+            )
+            st.success(f"✅ 数据已创建到GitHub: {filename}")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ GitHub保存失败: {str(e)}")
+        return False
+
+def load_data_from_github(filename):
+    """从GitHub加载数据"""
+    try:
+        config = get_github_config()
+        if not config:
+            return []
+            
+        g = Github(config["token"])
+        repo = g.get_repo(config["repo"])
+        
+        file_path = f"data/{filename}"
+        
+        try:
+            file = repo.get_contents(file_path)
+            content = base64.b64decode(file.content).decode('utf-8')
+            data = json.loads(content)
+            st.info(f"📥 从GitHub加载数据: {filename} ({len(data)} 条记录)")
+            return data
+        except:
+            st.info(f"📝 GitHub中暂无数据文件: {filename}")
+            return []
+            
+    except Exception as e:
+        st.warning(f"⚠️ GitHub加载失败，使用本地数据: {str(e)}")
+        return []
 # ========== 配置和常量 ==========
 
 # 数据文件路径
@@ -77,7 +162,7 @@ def clean_data_for_json(data):
         return [clean_record(record) for record in data]
     else:
         return clean_record(data)
-def save_data(data, filename):
+
     """保存数据到JSON文件"""
     try:
         # ✅ 添加：数据验证
